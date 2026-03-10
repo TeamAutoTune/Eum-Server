@@ -74,6 +74,30 @@ def get_team_detail(db: Session, team_id: int) -> Team:
     return _get_team_or_404(db, team_id)
 
 
+def get_my_team_by_nickname(db: Session, nickname: str) -> Team | None:
+    user = _get_user_by_nickname(db, nickname)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User not found: {nickname}",
+        )
+
+    team = db.scalar(
+        select(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(Team.created_at.desc())
+    )
+    if team:
+        return team
+
+    return db.scalar(
+        select(Team)
+        .where(Team.leader_id == user.id)
+        .order_by(Team.created_at.desc())
+    )
+
+
 def list_team_member_nicknames(db: Session, team_id: int, include_leader: bool = False) -> list[str]:
     _get_team_or_404(db, team_id)
     members = db.scalars(

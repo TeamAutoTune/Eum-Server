@@ -2,7 +2,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.schemas.team import TeamCreateRequest, TeamCreateResponse, TeamDetailResponse, TeamListItemResponse
+from app.schemas.team import (
+    MyTeamItemResponse,
+    MyTeamResponse,
+    TeamCreateRequest,
+    TeamCreateResponse,
+    TeamDetailResponse,
+    TeamListItemResponse,
+)
 from app.services import team_service
 
 router = APIRouter()
@@ -32,6 +39,23 @@ def list_teams(db: Session = Depends(get_db)):
         )
         for team in teams
     ]
+
+
+@router.get("/my", response_model=MyTeamResponse)
+def get_my_team(nickname: str, db: Session = Depends(get_db)):
+    team = team_service.get_my_team_by_nickname(db, nickname)
+    if not team:
+        return MyTeamResponse(has_team=False, team=None)
+
+    return MyTeamResponse(
+        has_team=True,
+        team=MyTeamItemResponse(
+            team_id=team.id,
+            team_name=team.team_name,
+            description=team.description,
+            leader=team.leader.nickname,
+        ),
+    )
 
 
 @router.get("/{team_id}", response_model=TeamDetailResponse)
