@@ -1,0 +1,17 @@
+{"timestamp": "2026-03-09T06:59:36.188515+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "match_shown", "mode": "apply", "matchScore": 24}
+{"timestamp": "2026-03-09T06:59:36.191518+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-085", "event_type": "match_shown", "mode": "apply", "matchScore": 22}
+{"timestamp": "2026-03-09T06:59:36.193518+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-033", "event_type": "match_shown", "mode": "apply", "matchScore": 21}
+{"timestamp": "2026-03-09T06:59:36.194518+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-077", "event_type": "match_shown", "mode": "apply", "matchScore": 20}
+{"timestamp": "2026-03-09T06:59:36.198848+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "profile_clicked", "mode": "apply"}
+{"timestamp": "2026-03-09T06:59:36.199994+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "chat_started", "mode": "apply"}
+{"timestamp": "2026-03-09T06:59:36.201121+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-085", "event_type": "skip", "mode": "apply"}
+{"timestamp": "2026-03-09T07:05:14.522619+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "match_shown", "mode": "apply", "matchScore": 24}
+{"timestamp": "2026-03-09T07:05:14.523629+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-085", "event_type": "match_shown", "mode": "apply", "matchScore": 22}
+{"timestamp": "2026-03-09T07:05:14.524660+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-033", "event_type": "match_shown", "mode": "apply", "matchScore": 21}
+{"timestamp": "2026-03-09T07:05:14.525720+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-077", "event_type": "match_shown", "mode": "apply", "matchScore": 20}
+{"timestamp": "2026-03-09T07:05:14.526727+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "profile_clicked", "mode": "apply"}
+{"timestamp": "2026-03-09T07:05:14.527945+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "chat_started", "mode": "apply"}
+{"timestamp": "2026-03-09T07:05:14.527945+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-085", "event_type": "skip", "mode": "apply"}
+{"timestamp": "2026-03-09T07:25:28.811305+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "match_shown", "mode": "apply", "matchScore": 27}
+{"timestamp": "2026-03-09T07:25:28.811305+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "profile_clicked", "mode": "apply"}
+{"timestamp": "2026-03-09T07:25:28.812647+00:00", "viewer_id": "viewer-apply-001", "candidate_id": "u-052", "event_type": "chat_started", "mode": "apply"}
