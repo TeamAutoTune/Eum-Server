@@ -1,0 +1,13 @@
+﻿viewer_id,candidate_id,mode,rule_score,label,event_count,events,avoid_conflict_ratio,genre_overlap_ratio,goal_similarity,instrument_overlap,part_overlap_ratio,practice_similarity,region_sido_match,required_match_ratio,same_sigungu,style_match,time_overlap_ratio
+viewer-apply-001,u-033,apply,21,0,1,match_shown,0.0,0.6666666666666666,1.0,1.0,0.0,0.7,1.0,0.5,0.0,0.0,0.5
+viewer-apply-001,u-052,apply,24,2,3,chat_started|match_shown|profile_clicked,0.0,0.3333333333333333,0.6,1.0,0.5,0.7,1.0,0.5,0.0,1.0,0.5
+viewer-apply-001,u-077,apply,20,0,1,match_shown,0.0,0.0,1.0,1.0,0.0,0.7,1.0,0.5,1.0,1.0,0.3333333333333333
+viewer-apply-001,u-085,apply,22,0,2,match_shown|skip,0.0,0.3333333333333333,1.0,1.0,0.0,0.75,1.0,0.0,1.0,1.0,0.3333333333333333
+viewer-apply-001,u-033,apply,21,0,1,match_shown,0.0,0.6666666666666666,1.0,1.0,0.0,0.7,1.0,0.5,0.0,0.0,0.5
+viewer-apply-001,u-052,apply,24,2,3,chat_started|match_shown|profile_clicked,0.0,0.3333333333333333,0.6,1.0,0.5,0.7,1.0,0.5,0.0,1.0,0.5
+viewer-apply-001,u-077,apply,20,0,1,match_shown,0.0,0.0,1.0,1.0,0.0,0.7,1.0,0.5,1.0,1.0,0.3333333333333333
+viewer-apply-001,u-085,apply,22,0,2,match_shown|skip,0.0,0.3333333333333333,1.0,1.0,0.0,0.75,1.0,0.0,1.0,1.0,0.3333333333333333
+viewer-apply-001,u-033,apply,21,0,1,match_shown,0.0,0.6666666666666666,1.0,1.0,0.0,0.7,1.0,0.5,0.0,0.0,0.5
+viewer-apply-001,u-052,apply,24,2,3,chat_started|match_shown|profile_clicked,0.0,0.3333333333333333,0.6,1.0,0.5,0.7,1.0,0.5,0.0,1.0,0.5
+viewer-apply-001,u-077,apply,20,0,1,match_shown,0.0,0.0,1.0,1.0,0.0,0.7,1.0,0.5,1.0,1.0,0.3333333333333333
+viewer-apply-001,u-085,apply,22,0,2,match_shown|skip,0.0,0.3333333333333333,1.0,1.0,0.0,0.75,1.0,0.0,1.0,1.0,0.3333333333333333

@@ -1,0 +1,36 @@
+{
+  "model_type": "simple_weighted_baseline",
+  "feature_columns": [
+    "avoid_conflict_ratio",
+    "genre_overlap_ratio",
+    "goal_similarity",
+    "instrument_overlap",
+    "part_overlap_ratio",
+    "practice_similarity",
+    "region_sido_match",
+    "required_match_ratio",
+    "same_sigungu",
+    "style_match",
+    "time_overlap_ratio"
+  ],
+  "feature_weights": {
+    "avoid_conflict_ratio": 0.0,
+    "genre_overlap_ratio": 0.0,
+    "goal_similarity": -0.3,
+    "instrument_overlap": 0.0,
+    "part_overlap_ratio": 0.375,
+    "practice_similarity": -0.0125,
+    "region_sido_match": 0.0,
+    "required_match_ratio": 0.125,
+    "same_sigungu": -0.5,
+    "style_match": 0.25,
+    "time_overlap_ratio": 0.083333
+  },
+  "dataset_summary": {
+    "row_count": 12,
+    "label_distribution": {
+      "0": 9,
+      "2": 3
+    }
+  }
+}
