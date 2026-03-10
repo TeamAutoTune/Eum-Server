@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -59,7 +60,19 @@ def _build_profile(candidate: dict) -> dict:
     }
 
 
-def seed(n: int = 100, seed_value: int = 42) -> None:
+def _build_test_nickname(raw_nickname: str, index: int) -> str:
+    base = (raw_nickname or f"SeedUser{index:03d}").strip()
+    suffix = f" (test)-{index:03d}"
+    max_len = 50
+    nickname = f"{base}{suffix}"
+    if len(nickname) <= max_len:
+        return nickname
+
+    trimmed = base[: max_len - len(suffix)].rstrip()
+    return f"{trimmed}{suffix}"
+
+
+def seed(n: int = 200, seed_value: int = 42, password: str = "seed1234") -> None:
     if str(_BAND_MATCHING_PATH) not in sys.path:
         sys.path.insert(0, str(_BAND_MATCHING_PATH))
 
@@ -72,15 +85,16 @@ def seed(n: int = 100, seed_value: int = 42) -> None:
     db = SessionLocal()
     try:
         for index, candidate in enumerate(candidates, start=1):
-            login_id = f"seed_{index:03d}"
-            nickname = str(candidate.get("nickname") or f"SeedUser{index:03d}")
+            login_id = f"seed_test_{index:03d}"
+            raw_nickname = str(candidate.get("nickname") or f"SeedUser{index:03d}")
+            nickname = _build_test_nickname(raw_nickname, index)
 
             user = db.scalar(select(User).where(User.user_id == login_id))
             if not user:
                 user = User(
                     nickname=nickname,
                     user_id=login_id,
-                    hashed_password=hash_password("seed1234"),
+                    hashed_password=hash_password(password),
                     instrument=(_safe_list(candidate.get("instruments")) or ["Unknown"])[0],
                 )
                 db.add(user)
@@ -117,10 +131,20 @@ def seed(n: int = 100, seed_value: int = 42) -> None:
                 profile.candidate_data = candidate_payload
 
         db.commit()
-        print(f"Seeded {n} users and matching profiles.")
+        print(f"Seeded/updated {n} test users and matching profiles.")
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    seed()
+    parser = argparse.ArgumentParser(description="Seed test users and matching profiles.")
+    parser.add_argument("--count", type=int, default=200, help="Number of test users to seed.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for synthetic generator.")
+    parser.add_argument(
+        "--password",
+        type=str,
+        default="seed1234",
+        help="Password to set for all seeded users.",
+    )
+    args = parser.parse_args()
+    seed(n=args.count, seed_value=args.seed, password=args.password)
