@@ -1,10 +1,11 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, chat, home
+from app.api.routes import auth, board, chat, home
 from app.core.config import settings
 from app.db.base import Base
-from app.db.session import engine
+from app.db.session import SessionLocal, engine
+from app.services import board_service
 
 
 def create_app() -> FastAPI:
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+    app.include_router(board.router, prefix="/api/board", tags=["board"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(home.router, prefix="/api/home", tags=["home"])
 
@@ -35,3 +37,9 @@ app = create_app()
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+
+    db = SessionLocal()
+    try:
+        board_service.seed_board_data(db)
+    finally:
+        db.close()
