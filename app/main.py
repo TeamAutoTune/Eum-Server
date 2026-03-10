@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from app.api.routes import auth, board, chat, home, matching
+from app.api.routes import auth, board, chat, home, matching, team, team_checklist, team_notice, team_schedule
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
@@ -27,6 +27,10 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(home.router, prefix="/api/home", tags=["home"])
     app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
+    app.include_router(team.router, prefix="/api/team", tags=["team"])
+    app.include_router(team_notice.router, prefix="/api/team", tags=["team-notice"])
+    app.include_router(team_checklist.router, prefix="/api/team", tags=["team-checklist"])
+    app.include_router(team_schedule.router, prefix="/api/team", tags=["team-schedule"])
 
     static_dir = Path(__file__).resolve().parents[1] / "static"
     if static_dir.exists():
