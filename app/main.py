@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import auth, board, chat, home, matching
 from app.core.config import settings
@@ -21,9 +22,12 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(board.router, prefix="/api/board", tags=["board"])
+    app.include_router(board.upload_router, prefix="/api", tags=["uploads"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(home.router, prefix="/api/home", tags=["home"])
     app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
+
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
     @app.get("/health", tags=["health"])
     def health_check() -> dict[str, bool]:

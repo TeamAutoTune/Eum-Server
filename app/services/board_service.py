@@ -1,8 +1,14 @@
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, func, literal, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.board import BoardPerformance, BoardReview, FreeBoardComment, FreeBoardPost
+from app.models.board import (
+    BoardPerformance,
+    BoardReview,
+    FreeBoardComment,
+    FreeBoardPost,
+    FreeBoardPostLike,
+)
 from app.schemas.board import (
     BoardReviewCreateRequest,
     FreeBoardCommentCreateRequest,
@@ -43,7 +49,7 @@ def create_review(db: Session, payload: BoardReviewCreateRequest) -> BoardReview
         rating=payload.rating,
         type=payload.type,
         content=payload.content,
-        image_url=payload.image_url,
+        image_urls=payload.image_urls,
     )
     db.add(review)
     db.commit()
@@ -51,13 +57,54 @@ def create_review(db: Session, payload: BoardReviewCreateRequest) -> BoardReview
     return review
 
 
-def list_free_posts(db: Session) -> list[FreeBoardPost]:
+def _likes_expr():
+    return (
+        select(FreeBoardPostLike.post_id, func.count().label("likes"))
+        .group_by(FreeBoardPostLike.post_id)
+        .subquery()
+    )
+
+
+def _liked_by_user_expr(current_user_id: str | None):
+    if not current_user_id:
+        return literal(False)
+    return (
+        select(func.count())
+        .where(
+            and_(
+                FreeBoardPostLike.post_id == FreeBoardPost.id,
+                FreeBoardPostLike.user_id == current_user_id,
+            )
+        )
+        .correlate(FreeBoardPost)
+        .scalar_subquery()
+        > 0
+    )
+
+
+def list_free_posts(db: Session, current_user_id: str | None) -> list[dict]:
+    likes_subq = _likes_expr()
+    liked_expr = _liked_by_user_expr(current_user_id)
+
     query = (
-        select(FreeBoardPost)
+        select(
+            FreeBoardPost,
+            func.coalesce(likes_subq.c.likes, 0).label("likes"),
+            liked_expr.label("liked_by_user"),
+        )
         .options(selectinload(FreeBoardPost.comments))
+        .outerjoin(likes_subq, FreeBoardPost.id == likes_subq.c.post_id)
         .order_by(FreeBoardPost.created_at.desc())
     )
-    return db.scalars(query).all()
+    rows = db.execute(query).all()
+    return [
+        {
+            "post": row[0],
+            "likes": int(row[1] or 0),
+            "liked_by_user": bool(row[2]),
+        }
+        for row in rows
+    ]
 
 
 def get_free_post(db: Session, post_id: int) -> FreeBoardPost:
@@ -72,11 +119,31 @@ def get_free_post(db: Session, post_id: int) -> FreeBoardPost:
     return post
 
 
-def create_free_post(db: Session, payload: FreeBoardPostCreateRequest) -> FreeBoardPost:
+def get_free_post_with_meta(db: Session, post_id: int, current_user_id: str | None) -> dict:
+    likes_subq = _likes_expr()
+    liked_expr = _liked_by_user_expr(current_user_id)
+
+    query = (
+        select(
+            FreeBoardPost,
+            func.coalesce(likes_subq.c.likes, 0).label("likes"),
+            liked_expr.label("liked_by_user"),
+        )
+        .options(selectinload(FreeBoardPost.comments))
+        .outerjoin(likes_subq, FreeBoardPost.id == likes_subq.c.post_id)
+        .where(FreeBoardPost.id == post_id)
+    )
+    row = db.execute(query).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+    return {"post": row[0], "likes": int(row[1] or 0), "liked_by_user": bool(row[2])}
+
+
+def create_free_post(db: Session, payload: FreeBoardPostCreateRequest, current_user_id: str | None) -> dict:
     post = FreeBoardPost(author_name=payload.author_name, content=payload.content)
     db.add(post)
     db.commit()
-    return get_free_post(db, post.id)
+    return get_free_post_with_meta(db, post.id, current_user_id)
 
 
 def delete_free_post(db: Session, post_id: int) -> bool:
@@ -88,21 +155,23 @@ def delete_free_post(db: Session, post_id: int) -> bool:
     return True
 
 
-def toggle_free_post_like(db: Session, post_id: int) -> FreeBoardPost:
+def toggle_free_post_like(db: Session, post_id: int, user_id: str) -> dict:
     post = db.get(FreeBoardPost, post_id)
     if not post:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
-    if post.liked_by_user:
-        post.likes = max(0, post.likes - 1)
-        post.liked_by_user = False
+    existing = db.scalar(
+        select(FreeBoardPostLike).where(
+            and_(FreeBoardPostLike.post_id == post_id, FreeBoardPostLike.user_id == user_id)
+        )
+    )
+    if existing:
+        db.delete(existing)
     else:
-        post.likes += 1
-        post.liked_by_user = True
+        db.add(FreeBoardPostLike(post_id=post_id, user_id=user_id))
 
     db.commit()
-    db.refresh(post)
-    return post
+    return get_free_post_with_meta(db, post_id, user_id)
 
 
 def create_free_post_comment(
@@ -132,30 +201,30 @@ def seed_board_data(db: Session) -> None:
 
     performances = [
         BoardPerformance(
-            title="\ub77c\uc774\ube0c \ub77d \ub098\uc774\ud2b8",
+            title="라이브 락 나이트",
             date="2026-03-15",
-            location="\uc62c\ub9bc\ud53d\uacf5\uc6d0",
-            genre="\ub77d",
-            artist="\uc2e4\ub9ac\uce74\uac94, \uc0c8\uc18c\ub144, \uad6d\uce74\uc2a4\ud150, \uc794\ub098\ube44",
-            description="\ubd04 \uc2dc\uc98c \uc624\ud504\ub2dd \uacf5\uc5f0\uc785\ub2c8\ub2e4.",
+            location="올림픽공원",
+            genre="락",
+            artist="실리카겔, 새소년, 국카스텐, 잔나비",
+            description="봄 시즌 오프닝 공연입니다.",
             image_url="/assets/seoullive.png",
         ),
         BoardPerformance(
-            title="\uc7ac\uc988 \ub098\uc774\ud2b8 \ud398\uc2a4\ud2f0\ubc8c",
+            title="재즈 나이트 페스티벌",
             date="2026-03-22",
-            location="\ubd80\uc0b0 \ubb38\ud654\ud68c\uad00",
-            genre="\uc7ac\uc988",
-            artist="\ub098\uc724\uc120, Laufey, \ud504\ub810\ub958\ub4dc, \ubb38\ucc28\uc77c\ub4dc",
-            description="\ubaa8\ub358 \uc7ac\uc988\uc640 \ud568\uaed8\ud558\ub294 \ub530\ub73b\ud55c \ubc24.",
+            location="부산 문화회관",
+            genre="재즈",
+            artist="나윤선, Laufey, 프렐류드, 문차일드",
+            description="모던 재즈와 함께하는 따뜻한 밤.",
             image_url="/assets/jazznight.png",
         ),
         BoardPerformance(
-            title="\ud074\ub798\uc2dd \ubd04 \ucf58\uc11c\ud2b8",
+            title="클래식 봄 콘서트",
             date="2026-03-29",
-            location="\uc11c\uc6b8 \uc608\uc220\uc758\uc804\ub2f9",
-            genre="\ud074\ub798\uc2dd",
-            artist="\uc11c\uc6b8 \ud544\ud558\ubaa8\ub2c9",
-            description="\uad50\ud5a5\uace1\uacfc \uc2e4\ub0b4\uc545\uc73c\ub85c \uad6c\uc131\ub41c \ud480 \ud504\ub85c\uadf8\ub7a8.",
+            location="서울 예술의전당",
+            genre="클래식",
+            artist="서울 필하모닉",
+            description="교향곡과 실내악으로 구성된 풀 프로그램.",
             image_url="/assets/classicsymphony.png",
         ),
     ]
@@ -166,47 +235,47 @@ def seed_board_data(db: Session) -> None:
         [
             BoardReview(
                 performance_id=performances[0].id,
-                author_name="\uc774\uc74c\uc0ac\uc6a9\uc7901",
+                author_name="이음사용자1",
                 rating=5,
                 type="found_member",
-                content="\ubb34\ub300 \uc5f0\ucd9c\uacfc \uc0ac\uc6b4\ub4dc\uac00 \uc815\ub9d0 \uc88b\uc558\uc5b4\uc694. \ub2e4\uc74c \uacf5\uc5f0\ub3c4 \uae30\ub300\ub429\ub2c8\ub2e4.",
-                image_url="/assets/Gemini_Generated_Band.png",
+                content="무대 연출과 사운드가 정말 좋았어요. 다음 공연도 기대됩니다.",
+                image_urls=["/assets/Gemini_Generated_Band.png"],
             ),
             BoardReview(
                 performance_id=performances[0].id,
-                author_name="\uc74c\uc545\uc560\ud638\uac00",
+                author_name="음악애호가",
                 rating=4,
                 type="joined_club",
-                content="\ud604\uc7a5 \ubd84\uc704\uae30\uac00 \uc88b\uc558\uace0 \uc14b\ub9ac\uc2a4\ud2b8 \uad6c\uc131\ub3c4 \ub9cc\uc871\uc2a4\ub7ec\uc6e0\uc5b4\uc694.",
+                content="현장 분위기가 좋았고 셋리스트 구성도 만족스러웠어요.",
             ),
             BoardReview(
                 performance_id=performances[1].id,
-                author_name="\uc7ac\uc988\ub7ec\ubc84",
+                author_name="재즈러버",
                 rating=5,
                 type="found_member",
-                content="\uc7ac\uc988 \uc88b\uc544\ud558\uc2dc\ub294 \ubd84\ub4e4\uaed8 \uaf2d \ucd94\ucc9c\ud558\uace0 \uc2f6\uc740 \uacf5\uc5f0\uc774\uc5c8\uc5b4\uc694.",
+                content="재즈 좋아하시는 분들께 꼭 추천하고 싶은 공연이었어요.",
             ),
         ]
     )
 
     posts = [
-        FreeBoardPost(author_name="\uc0c8\ubbf8", content="\ubc34\ub4dc \uc5f0\uc2b5 \ub05d\ub0ac\uc5b4\uc694. \ubcf4\uceec \ud55c \ubd84 \ub354 \uad6c\ud569\ub2c8\ub2e4.", likes=24),
-        FreeBoardPost(author_name="\ud06c\ub9ac\uc2a4", content="\uc0c1\ud0dc \uc88b\uc740 \uc570\ud504 \ud310\ub9e4\ud569\ub2c8\ub2e4. \uad00\uc2ec \uc788\uc73c\uba74 DM \uc8fc\uc138\uc694.", likes=12),
-        FreeBoardPost(author_name="\ubbfc\ud638", content="\ubc34\ub4dc \uc2dc\uc791\ud55c \uc9c0 3\uac1c\uc6d4\uc778\ub370 \uc544\uc9c1\ub3c4 \ub108\ubb34 \uc7ac\ubc0c\uc5b4\uc694.", likes=38),
-        FreeBoardPost(author_name="\ubc15\uc9c0\ud6c8", content="\uc774\ubc88 \uc8fc\ub9d0 \uac15\ub0a8 \ucabd \ub77c\uc774\ube0c\ubc14 \ucd94\ucc9c\ud574 \uc8fc\uc138\uc694.", likes=18),
-        FreeBoardPost(author_name="\ub77c\uc774\uc5b8", content="\ucd08\ubcf4\uc790\uc6a9 \uae30\ud0c0 \ub808\uc2a8 \ucd94\ucc9c \ubd80\ud0c1\ub4dc\ub824\uc694.", likes=15),
-        FreeBoardPost(author_name="JK", content="\ud3c9\uc77c \ubc24\uc5d0 \uac00\ubccd\uac8c \ud569\uc8fc\ud560 \ubaa8\uc784 \ucc3e\uace0 \uc788\uc5b4\uc694.", likes=42),
-        FreeBoardPost(author_name="\ubcf4\uc2a4", content="\ud559\uad50 \uadfc\ucc98 \ud569\uc8fc\uc2e4 \uc2dc\uac04 \ub098\ub214 \uac00\ub2a5\ud55c \ubd84 \uc788\ub098\uc694?", likes=28),
-        FreeBoardPost(author_name="\ud61c\uc9c4", content="\uccab \ubb34\ub300 \uacf5\uc5f0 \ub05d\ub0c8\uc5b4\uc694. \uc815\ub9d0 \uc88b\uc740 \uacbd\ud5d8\uc774\uc5c8\uc5b4\uc694.", likes=56),
+        FreeBoardPost(author_name="새미", content="밴드 연습 끝났어요. 보컬 한 분 더 구합니다."),
+        FreeBoardPost(author_name="크리스", content="상태 좋은 앰프 판매합니다. 관심 있으면 DM 주세요."),
+        FreeBoardPost(author_name="민호", content="밴드 시작한 지 3개월인데 아직도 너무 재밌어요."),
+        FreeBoardPost(author_name="박지훈", content="이번 주말 강남 쪽 라이브바 추천해 주세요."),
+        FreeBoardPost(author_name="라이언", content="초보자용 기타 레슨 추천 부탁드려요."),
+        FreeBoardPost(author_name="JK", content="평일 밤에 가볍게 합주할 모임 찾고 있어요."),
+        FreeBoardPost(author_name="보스", content="학교 근처 합주실 시간 나눔 가능한 분 있나요?"),
+        FreeBoardPost(author_name="혜진", content="첫 무대 공연 끝냈어요. 정말 좋은 경험이었어요."),
     ]
     db.add_all(posts)
     db.flush()
 
     db.add_all(
         [
-            FreeBoardComment(post_id=posts[0].id, author_name="\uc774\uc11c\uc5f0", content="\ucd95\ud558\ud574\uc694. \uc5b4\ub5a4 \uc7a5\ub974 \ud558\uc2dc\ub098\uc694?"),
-            FreeBoardComment(post_id=posts[0].id, author_name="\uae40\ud558\ub298", content="\uc88b\ub124\uc694!"),
-            FreeBoardComment(post_id=posts[1].id, author_name="\ubc15\uc9c0\ud6c8", content="\uac00\uaca9\uc740 \uc5bc\ub9c8\uc778\uac00\uc694?"),
+            FreeBoardComment(post_id=posts[0].id, author_name="이서연", content="축하해요. 어떤 장르 하시나요?"),
+            FreeBoardComment(post_id=posts[0].id, author_name="김하늘", content="좋네요!"),
+            FreeBoardComment(post_id=posts[1].id, author_name="박지훈", content="가격은 얼마인가요?"),
         ]
     )
     db.commit()

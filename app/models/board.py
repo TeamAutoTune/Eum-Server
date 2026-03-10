@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -34,7 +34,7 @@ class BoardReview(Base):
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     type: Mapped[str] = mapped_column(String(30), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    image_urls: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     performance: Mapped["BoardPerformance"] = relationship(back_populates="reviews")
@@ -46,14 +46,16 @@ class FreeBoardPost(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     author_name: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    likes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    liked_by_user: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     comments: Mapped[list["FreeBoardComment"]] = relationship(
         back_populates="post",
         cascade="all, delete-orphan",
         order_by="FreeBoardComment.created_at.asc()",
+    )
+    likes: Mapped[list["FreeBoardPostLike"]] = relationship(
+        back_populates="post",
+        cascade="all, delete-orphan",
     )
 
 
@@ -67,3 +69,15 @@ class FreeBoardComment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     post: Mapped["FreeBoardPost"] = relationship(back_populates="comments")
+
+
+class FreeBoardPostLike(Base):
+    __tablename__ = "free_board_post_likes"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_post_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("free_board_posts.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    post: Mapped["FreeBoardPost"] = relationship(back_populates="likes")

@@ -24,7 +24,7 @@ class BoardReviewCreateRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
     type: Literal["found_member", "joined_club"]
     content: str = Field(min_length=1)
-    image_url: str | None = None
+    image_urls: list[str] | None = None
 
 
 class BoardReviewOut(BaseModel):
@@ -36,7 +36,7 @@ class BoardReviewOut(BaseModel):
     rating: int
     type: str
     content: str
-    image_url: str | None = None
+    image_urls: list[str] | None = None
     created_at: datetime
 
 
