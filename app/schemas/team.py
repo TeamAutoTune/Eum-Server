@@ -28,3 +28,15 @@ class TeamDetailResponse(BaseModel):
     description: str
     leader: str
     members: list[str]
+
+
+class MyTeamItemResponse(BaseModel):
+    team_id: int
+    team_name: str
+    description: str
+    leader: str
+
+
+class MyTeamResponse(BaseModel):
+    has_team: bool
+    team: MyTeamItemResponse | None = None
