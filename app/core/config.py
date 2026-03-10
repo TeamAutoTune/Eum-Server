@@ -22,6 +22,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value):
+        if isinstance(value, str) and value.startswith("postgres://"):
+            # Render may provide postgres:// URL; SQLAlchemy expects postgresql+driver://
+            return value.replace("postgres://", "postgresql+psycopg://", 1)
+        if isinstance(value, str) and value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        if isinstance(value, str) and value.startswith("sqlite:///./"):
+            rel_path = value.replace("sqlite:///./", "", 1)
+            base_dir = Path(__file__).resolve().parents[2]
+            abs_path = (base_dir / rel_path).resolve()
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            return f"sqlite:///{abs_path.as_posix()}"
+        return value
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value):
@@ -33,3 +49,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
