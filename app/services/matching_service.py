@@ -3,11 +3,12 @@
 import logging
 import random
 import sys
+import json
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.matching import MatchingProfile
@@ -37,6 +38,10 @@ def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _safe_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _norm_text(value: Any) -> str:
     return _safe_text(value).lower()
 
@@ -51,6 +56,19 @@ def _overlap_ratio(left: Any, right: Any) -> float:
     if not set_left or not set_right:
         return 0.0
     return len(set_left & set_right) / max(len(set_left), len(set_right))
+
+
+def _extract_region_parts(region: str) -> tuple[str, str]:
+    parts = _safe_text(region).split()
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return _norm_text(parts[0]), ""
+    return _norm_text(parts[0]), _norm_text(parts[1])
+
+
+def _normalized_list_from(value: Any) -> list[str]:
+    return [_norm_text(v) for v in _safe_list(value) if _norm_text(v)]
 
 
 def _load_band_matching() -> tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any], Callable[..., Any], Callable[..., Any], bool]:
@@ -310,18 +328,18 @@ def _candidate_instruments(candidate: dict) -> set[str]:
     }
 
 
-def _passes_hard_filters(profile: dict, candidate: dict, hard_filters: dict) -> bool:
+def _passes_hard_filters(profile: dict, candidate: dict, hard_filters: dict) -> tuple[bool, str]:
     if hard_filters.get("same_instrument"):
         if not (_profile_instruments(profile) & _candidate_instruments(candidate)):
-            return False
+            return False, "same_instrument_mismatch"
 
     if hard_filters.get("same_region"):
         user_sido = _profile_region_sido(profile)
         candidate_sido = _candidate_region_sido(candidate)
         if user_sido and candidate_sido and user_sido != candidate_sido:
-            return False
+            return False, "same_region_mismatch"
 
-    return True
+    return True, "passed"
 
 
 def _merge_recruit_needs(profile: dict, recruit_needs: list[dict]) -> dict:
@@ -375,34 +393,78 @@ def _is_mode_eligible_candidate(candidate: dict, mode: str) -> bool:
     return bool(_safe_list(candidate.get("instruments")))
 
 
+def _mode_eligibility_reason(candidate: dict, mode: str) -> str:
+    if mode == "recruit":
+        if not _safe_list(candidate.get("instruments")):
+            return "missing_instruments_for_recruit"
+        if not _safe_list(candidate.get("parts")):
+            return "missing_parts_for_recruit"
+        return "eligible"
+    if not _safe_list(candidate.get("instruments")):
+        return "missing_instruments_for_apply"
+    return "eligible"
+
+
+def _append_reason_sample(samples: list[str], value: str, max_items: int = 5) -> None:
+    if len(samples) >= max_items:
+        return
+    samples.append(value)
+
+
 def _normalize_profile_for_engine(profile: dict, hard_filters: dict) -> dict:
-    perf = dict(profile.get("performancePreferences") or {})
-    goal = dict(profile.get("activityGoal") or {})
-    match_conditions = dict(profile.get("matchConditions") or {})
+    profile = profile or {}
+    perf = _safe_dict(profile.get("performancePreferences"))
+    activity_goal_raw = profile.get("activityGoal")
+    activity_goal = _safe_dict(activity_goal_raw)
+    match_conditions = _safe_dict(profile.get("matchConditions"))
+
+    region_text = _safe_text(perf.get("activityRegion") or profile.get("region"))
+    parsed_sido, parsed_sigungu = _extract_region_parts(region_text)
+    region_sido = _norm_text(perf.get("activityRegionSido") or profile.get("region_sido") or parsed_sido)
+    region_sigungu = _norm_text(perf.get("activityRegionSigungu") or profile.get("region_sigungu") or parsed_sigungu)
+
+    activity_goals = _normalized_list_from(activity_goal.get("activityGoals") or profile.get("activityGoals"))
+    if not activity_goals:
+        if isinstance(activity_goal_raw, str):
+            activity_goals = _normalized_list_from([activity_goal_raw])
+        elif profile.get("activity_goal"):
+            activity_goals = _normalized_list_from([profile.get("activity_goal")])
 
     normalized = dict(profile)
-    normalized["playableInstruments"] = [_norm_text(v) for v in _safe_list(profile.get("playableInstruments")) if _norm_text(v)]
-    normalized["primaryParts"] = [_norm_text(v) for v in _safe_list(profile.get("primaryParts")) if _norm_text(v)]
-    normalized["preferredGenres"] = [_norm_text(v) for v in _safe_list(profile.get("preferredGenres")) if _norm_text(v)]
+    normalized["playableInstruments"] = _normalized_list_from(
+        profile.get("playableInstruments") or profile.get("instruments")
+    )
+    normalized["primaryParts"] = _normalized_list_from(
+        profile.get("primaryParts") or profile.get("parts")
+    )
+    normalized["preferredGenres"] = _normalized_list_from(
+        profile.get("preferredGenres") or profile.get("genres")
+    )
 
-    perf["performanceStyle"] = _norm_text(perf.get("performanceStyle"))
-    perf["activityRegion"] = _safe_text(perf.get("activityRegion"))
-    perf["activityRegionSido"] = _norm_text(perf.get("activityRegionSido"))
-    perf["activityRegionSigungu"] = _norm_text(perf.get("activityRegionSigungu"))
-    perf["availableTimeSlots"] = [_norm_text(v) for v in _safe_list(perf.get("availableTimeSlots")) if _norm_text(v)]
-    perf["practiceFrequency"] = _norm_text(perf.get("practiceFrequency"))
-
+    normalized_perf = {
+        "performanceStyle": _norm_text(perf.get("performanceStyle") or profile.get("style")),
+        "activityRegion": region_text,
+        "activityRegionSido": region_sido,
+        "activityRegionSigungu": region_sigungu,
+        "availableTimeSlots": _normalized_list_from(
+            perf.get("availableTimeSlots") or profile.get("availability")
+        ),
+        "practiceFrequency": _norm_text(perf.get("practiceFrequency") or profile.get("practiceFrequency")),
+    }
     if not hard_filters.get("same_region"):
-        perf["activityRegionSido"] = ""
-        perf["activityRegionSigungu"] = ""
+        normalized_perf["activityRegionSido"] = ""
+        normalized_perf["activityRegionSigungu"] = ""
 
-    goal["activityGoals"] = [_norm_text(v) for v in _safe_list(goal.get("activityGoals")) if _norm_text(v)]
-    match_conditions["requiredConditions"] = [_norm_text(v) for v in _safe_list(match_conditions.get("requiredConditions")) if _norm_text(v)]
-    match_conditions["avoidConditions"] = [_norm_text(v) for v in _safe_list(match_conditions.get("avoidConditions")) if _norm_text(v)]
-
-    normalized["performancePreferences"] = perf
-    normalized["activityGoal"] = goal
-    normalized["matchConditions"] = match_conditions
+    normalized["performancePreferences"] = normalized_perf
+    normalized["activityGoal"] = {"activityGoals": activity_goals}
+    normalized["matchConditions"] = {
+        "requiredConditions": _normalized_list_from(
+            match_conditions.get("requiredConditions") or profile.get("requiredConditions")
+        ),
+        "avoidConditions": _normalized_list_from(
+            match_conditions.get("avoidConditions") or profile.get("avoidConditions")
+        ),
+    }
 
     normalized_needs: list[dict] = []
     for need in _safe_list(profile.get("recruitNeeds")):
@@ -489,8 +551,7 @@ def recommend_matches(
     ranking_version: str = DEFAULT_RANKING_VERSION,
 ) -> dict:
     recommendation_id = str(uuid4())
-    # Test mode: force disable hard filters regardless of request payload.
-    hard_filters = {"same_instrument": False, "same_region": False}
+    hard_filters = hard_filters or {}
     recruit_needs = recruit_needs or []
     viewer_id = viewer_id or "anonymous"
 
@@ -508,28 +569,42 @@ def recommend_matches(
         if used_fallback and effective_ranking_version == DEFAULT_RANKING_VERSION:
             effective_ranking_version = FALLBACK_RANKING_VERSION
 
-        raw_candidates = list_candidates(db, exclude_user_id=viewer_id)
-        if not raw_candidates:
-            raw_candidates = generate_candidates(n=100, seed=42)
+        total_users = db.scalar(select(func.count()).select_from(User)) or 0
+        all_candidates = list_candidates(db, exclude_user_id=None)
+        if not all_candidates:
+            all_candidates = generate_candidates(n=100, seed=42)
 
-        total_count = len(raw_candidates)
-        active_candidates = [c for c in raw_candidates if _is_active_candidate(c)]
-        active_count = len(active_candidates)
+        active_candidates = [c for c in all_candidates if _is_active_candidate(c)]
         onboarding_candidates = [c for c in active_candidates if _is_onboarding_done_candidate(c)]
-        onboarding_done_count = len(onboarding_candidates)
-        mode_eligible_candidates = [
-            c for c in onboarding_candidates if _is_mode_eligible_candidate(c, mode)
-        ]
-        mode_eligible_count = len(mode_eligible_candidates)
+        after_self_exclude = [c for c in onboarding_candidates if str(c.get("id")) != viewer_id]
+
+        mode_eligible_candidates: list[dict] = []
+        mode_eligible_excluded_samples: list[str] = []
+        for candidate in after_self_exclude:
+            reason = _mode_eligibility_reason(candidate, mode)
+            if reason == "eligible":
+                mode_eligible_candidates.append(candidate)
+            else:
+                _append_reason_sample(
+                    mode_eligible_excluded_samples,
+                    f"id={candidate.get('id')} reason={reason}",
+                )
 
         normalized_profile = _merge_recruit_needs(profile, recruit_needs)
         engine_profile = _normalize_profile_for_engine(normalized_profile, hard_filters)
 
         candidate_pairs: list[tuple[dict, dict]] = []
+        hard_filter_excluded_samples: list[str] = []
         for raw_candidate in mode_eligible_candidates:
             engine_candidate = _normalize_candidate_for_engine(raw_candidate)
-            if _passes_hard_filters(engine_profile, engine_candidate, hard_filters):
+            passed, reason = _passes_hard_filters(engine_profile, engine_candidate, hard_filters)
+            if passed:
                 candidate_pairs.append((raw_candidate, engine_candidate))
+            else:
+                _append_reason_sample(
+                    hard_filter_excluded_samples,
+                    f"id={raw_candidate.get('id')} reason={reason}",
+                )
 
         filtered_candidates_raw = [pair[0] for pair in candidate_pairs]
         filtered_candidates_engine = [pair[1] for pair in candidate_pairs]
@@ -545,6 +620,15 @@ def recommend_matches(
             viewer_id=viewer_id,
             enable_feature_logging=False,
         )
+        scored_ids = {str(item.get("id")) for item in scored}
+        scoring_excluded_samples: list[str] = []
+        for candidate in filtered_candidates_engine:
+            cid = str(candidate.get("id"))
+            if cid not in scored_ids:
+                _append_reason_sample(
+                    scoring_excluded_samples,
+                    f"id={cid} reason=engine_filtered_or_below_min_score",
+                )
 
         candidate_map = {str(item.get("id")): item for item in filtered_candidates_raw}
         results: list[dict] = []
@@ -611,21 +695,62 @@ def recommend_matches(
                 continue
 
         logger.info(
-            "matching_request recommendation_id=%s mode=%s min_score=%s total=%s active=%s onboarding_done=%s mode_eligible=%s final=%s",
+            "matching_stage_counts recommendation_id=%s data=%s",
             recommendation_id,
-            mode,
-            min_score,
-            total_count,
-            active_count,
-            onboarding_done_count,
-            mode_eligible_count,
-            len(results),
+            json.dumps(
+                {
+                    "mode": mode,
+                    "total_users": total_users,
+                    "active_users": len(active_candidates),
+                    "onboarding_ready_users": len(onboarding_candidates),
+                    "mode_eligible_users": len(mode_eligible_candidates),
+                    "after_block_self_exclude": len(after_self_exclude),
+                    "after_hard_filters": len(filtered_candidates_engine),
+                    "after_scoring": len(scored),
+                    "final_results_count": len(results),
+                    "min_score": min_score,
+                    "hard_filters": hard_filters,
+                },
+                ensure_ascii=False,
+            ),
         )
+
+        logger.info(
+            "matching_exclusion_samples recommendation_id=%s data=%s",
+            recommendation_id,
+            json.dumps(
+                {
+                    "mode_eligible_excluded": mode_eligible_excluded_samples,
+                    "hard_filter_excluded": hard_filter_excluded_samples,
+                    "scoring_excluded": scoring_excluded_samples,
+                },
+                ensure_ascii=False,
+            ),
+        )
+
+        debug_code = None
+        debug_message = None
+        if (
+            len(results) == 0
+            and not hard_filters.get("same_instrument")
+            and not hard_filters.get("same_region")
+            and int(min_score or 0) <= 0
+        ):
+            debug_code = "candidate_pool_empty"
+            debug_message = "No candidates remained after scoring with hard filters off and min_score=0."
+            logger.warning(
+                "matching_candidate_pool_empty recommendation_id=%s code=%s message=%s",
+                recommendation_id,
+                debug_code,
+                debug_message,
+            )
 
         return {
             "recommendation_id": recommendation_id,
             "ranking_version": effective_ranking_version,
             "results": results,
+            "debug_code": debug_code,
+            "debug_message": debug_message,
         }
     except Exception as exc:
         logger.exception(

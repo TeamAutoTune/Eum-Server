@@ -38,6 +38,8 @@ class MatchingRecommendResponse(BaseModel):
     recommendation_id: str
     ranking_version: str
     results: list[MatchingResultOut] = Field(default_factory=list)
+    debug_code: str | None = None
+    debug_message: str | None = None
 
 
 class MatchingEventRequest(BaseModel):
