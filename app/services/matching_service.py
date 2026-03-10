@@ -360,6 +360,21 @@ def _candidate_snapshot(candidate: dict) -> dict:
     }
 
 
+def _is_active_candidate(candidate: dict) -> bool:
+    # User model currently has no explicit active flag; treat non-empty candidate payload as active.
+    return bool(candidate.get("id")) and isinstance(candidate, dict)
+
+
+def _is_onboarding_done_candidate(candidate: dict) -> bool:
+    return bool(_safe_list(candidate.get("instruments")) or _safe_list(candidate.get("genres")))
+
+
+def _is_mode_eligible_candidate(candidate: dict, mode: str) -> bool:
+    if mode == "recruit":
+        return bool(_safe_list(candidate.get("instruments")) and _safe_list(candidate.get("parts")))
+    return bool(_safe_list(candidate.get("instruments")))
+
+
 def _normalize_profile_for_engine(profile: dict, hard_filters: dict) -> dict:
     perf = dict(profile.get("performancePreferences") or {})
     goal = dict(profile.get("activityGoal") or {})
@@ -474,7 +489,8 @@ def recommend_matches(
     ranking_version: str = DEFAULT_RANKING_VERSION,
 ) -> dict:
     recommendation_id = str(uuid4())
-    hard_filters = hard_filters or {}
+    # Test mode: force disable hard filters regardless of request payload.
+    hard_filters = {"same_instrument": False, "same_region": False}
     recruit_needs = recruit_needs or []
     viewer_id = viewer_id or "anonymous"
 
@@ -496,11 +512,21 @@ def recommend_matches(
         if not raw_candidates:
             raw_candidates = generate_candidates(n=100, seed=42)
 
+        total_count = len(raw_candidates)
+        active_candidates = [c for c in raw_candidates if _is_active_candidate(c)]
+        active_count = len(active_candidates)
+        onboarding_candidates = [c for c in active_candidates if _is_onboarding_done_candidate(c)]
+        onboarding_done_count = len(onboarding_candidates)
+        mode_eligible_candidates = [
+            c for c in onboarding_candidates if _is_mode_eligible_candidate(c, mode)
+        ]
+        mode_eligible_count = len(mode_eligible_candidates)
+
         normalized_profile = _merge_recruit_needs(profile, recruit_needs)
         engine_profile = _normalize_profile_for_engine(normalized_profile, hard_filters)
 
         candidate_pairs: list[tuple[dict, dict]] = []
-        for raw_candidate in raw_candidates:
+        for raw_candidate in mode_eligible_candidates:
             engine_candidate = _normalize_candidate_for_engine(raw_candidate)
             if _passes_hard_filters(engine_profile, engine_candidate, hard_filters):
                 candidate_pairs.append((raw_candidate, engine_candidate))
@@ -585,10 +611,14 @@ def recommend_matches(
                 continue
 
         logger.info(
-            "matching_request recommendation_id=%s mode=%s min_score=%s result_count=%s",
+            "matching_request recommendation_id=%s mode=%s min_score=%s total=%s active=%s onboarding_done=%s mode_eligible=%s final=%s",
             recommendation_id,
             mode,
             min_score,
+            total_count,
+            active_count,
+            onboarding_done_count,
+            mode_eligible_count,
             len(results),
         )
 
