@@ -37,8 +37,12 @@ def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _norm_text(value: Any) -> str:
+    return _safe_text(value).lower()
+
+
 def _setify(value: Any) -> set[str]:
-    return {_safe_text(item) for item in _safe_list(value) if _safe_text(item)}
+    return {_norm_text(item) for item in _safe_list(value) if _norm_text(item)}
 
 
 def _overlap_ratio(left: Any, right: Any) -> float:
@@ -356,6 +360,65 @@ def _candidate_snapshot(candidate: dict) -> dict:
     }
 
 
+def _normalize_profile_for_engine(profile: dict, hard_filters: dict) -> dict:
+    perf = dict(profile.get("performancePreferences") or {})
+    goal = dict(profile.get("activityGoal") or {})
+    match_conditions = dict(profile.get("matchConditions") or {})
+
+    normalized = dict(profile)
+    normalized["playableInstruments"] = [_norm_text(v) for v in _safe_list(profile.get("playableInstruments")) if _norm_text(v)]
+    normalized["primaryParts"] = [_norm_text(v) for v in _safe_list(profile.get("primaryParts")) if _norm_text(v)]
+    normalized["preferredGenres"] = [_norm_text(v) for v in _safe_list(profile.get("preferredGenres")) if _norm_text(v)]
+
+    perf["performanceStyle"] = _norm_text(perf.get("performanceStyle"))
+    perf["activityRegion"] = _safe_text(perf.get("activityRegion"))
+    perf["activityRegionSido"] = _norm_text(perf.get("activityRegionSido"))
+    perf["activityRegionSigungu"] = _norm_text(perf.get("activityRegionSigungu"))
+    perf["availableTimeSlots"] = [_norm_text(v) for v in _safe_list(perf.get("availableTimeSlots")) if _norm_text(v)]
+    perf["practiceFrequency"] = _norm_text(perf.get("practiceFrequency"))
+
+    if not hard_filters.get("same_region"):
+        perf["activityRegionSido"] = ""
+        perf["activityRegionSigungu"] = ""
+
+    goal["activityGoals"] = [_norm_text(v) for v in _safe_list(goal.get("activityGoals")) if _norm_text(v)]
+    match_conditions["requiredConditions"] = [_norm_text(v) for v in _safe_list(match_conditions.get("requiredConditions")) if _norm_text(v)]
+    match_conditions["avoidConditions"] = [_norm_text(v) for v in _safe_list(match_conditions.get("avoidConditions")) if _norm_text(v)]
+
+    normalized["performancePreferences"] = perf
+    normalized["activityGoal"] = goal
+    normalized["matchConditions"] = match_conditions
+
+    normalized_needs: list[dict] = []
+    for need in _safe_list(profile.get("recruitNeeds")):
+        if not isinstance(need, dict):
+            continue
+        normalized_needs.append(
+            {
+                **need,
+                "instrument": _norm_text(need.get("instrument")),
+                "part": _norm_text(need.get("part")),
+            }
+        )
+    normalized["recruitNeeds"] = normalized_needs
+    return normalized
+
+
+def _normalize_candidate_for_engine(candidate: dict) -> dict:
+    normalized = dict(candidate)
+    normalized["instruments"] = [_norm_text(v) for v in _safe_list(candidate.get("instruments")) if _norm_text(v)]
+    normalized["parts"] = [_norm_text(v) for v in _safe_list(candidate.get("parts")) if _norm_text(v)]
+    normalized["genres"] = [_norm_text(v) for v in _safe_list(candidate.get("genres")) if _norm_text(v)]
+    normalized["style"] = _norm_text(candidate.get("style"))
+    normalized["regionSido"] = _norm_text(candidate.get("regionSido"))
+    normalized["regionSigungu"] = _norm_text(candidate.get("regionSigungu"))
+    normalized["availability"] = [_norm_text(v) for v in _safe_list(candidate.get("availability")) if _norm_text(v)]
+    normalized["practiceFrequency"] = _norm_text(candidate.get("practiceFrequency"))
+    normalized["activityGoal"] = _norm_text(candidate.get("activityGoal"))
+    normalized["tags"] = [_norm_text(v) for v in _safe_list(candidate.get("tags")) if _norm_text(v)]
+    return normalized
+
+
 def _safe_log_match_features(**kwargs: Any) -> None:
     try:
         log_match_features(**kwargs)
@@ -429,22 +492,27 @@ def recommend_matches(
         if used_fallback and effective_ranking_version == DEFAULT_RANKING_VERSION:
             effective_ranking_version = FALLBACK_RANKING_VERSION
 
-        candidates = list_candidates(db, exclude_user_id=viewer_id)
-        if not candidates:
-            candidates = generate_candidates(n=100, seed=42)
-
-        filtered_candidates = [
-            candidate
-            for candidate in candidates
-            if _passes_hard_filters(profile, candidate, hard_filters)
-        ]
+        raw_candidates = list_candidates(db, exclude_user_id=viewer_id)
+        if not raw_candidates:
+            raw_candidates = generate_candidates(n=100, seed=42)
 
         normalized_profile = _merge_recruit_needs(profile, recruit_needs)
-        normalized_profile_for_features = normalize_profile(normalized_profile)
+        engine_profile = _normalize_profile_for_engine(normalized_profile, hard_filters)
+
+        candidate_pairs: list[tuple[dict, dict]] = []
+        for raw_candidate in raw_candidates:
+            engine_candidate = _normalize_candidate_for_engine(raw_candidate)
+            if _passes_hard_filters(engine_profile, engine_candidate, hard_filters):
+                candidate_pairs.append((raw_candidate, engine_candidate))
+
+        filtered_candidates_raw = [pair[0] for pair in candidate_pairs]
+        filtered_candidates_engine = [pair[1] for pair in candidate_pairs]
+
+        normalized_profile_for_features = normalize_profile(engine_profile)
 
         scored = get_top_matches(
-            profile_data=normalized_profile,
-            candidates=filtered_candidates,
+            profile_data=engine_profile,
+            candidates=filtered_candidates_engine,
             mode=mode,
             min_score=min_score,
             top_k=limit,
@@ -452,7 +520,7 @@ def recommend_matches(
             enable_feature_logging=False,
         )
 
-        candidate_map = {str(item.get("id")): item for item in filtered_candidates}
+        candidate_map = {str(item.get("id")): item for item in filtered_candidates_raw}
         results: list[dict] = []
 
         for rank_position, item in enumerate(scored, start=1):
