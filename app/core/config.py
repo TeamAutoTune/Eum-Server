@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def normalize_database_url(cls, value):
+        if isinstance(value, str) and value.startswith("postgres://"):
+            # Render may provide postgres:// URL; SQLAlchemy expects postgresql+driver://
+            return value.replace("postgres://", "postgresql+psycopg://", 1)
+        if isinstance(value, str) and value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
         if isinstance(value, str) and value.startswith("sqlite:///./"):
             rel_path = value.replace("sqlite:///./", "", 1)
             base_dir = Path(__file__).resolve().parents[2]
