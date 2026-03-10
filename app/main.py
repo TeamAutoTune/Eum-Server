@@ -1,7 +1,7 @@
-﻿from fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, chat, home
+from app.api.routes import auth, chat, home, matching
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import engine
@@ -21,6 +21,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
     app.include_router(home.router, prefix="/api/home", tags=["home"])
+    app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
 
     @app.get("/health", tags=["health"])
     def health_check() -> dict[str, bool]:

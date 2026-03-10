@@ -1,3 +1,3 @@
-﻿from app.api.routes import auth, chat, home
+from app.api.routes import auth, chat, home, matching
 
-__all__ = ["auth", "chat", "home"]
+__all__ = ["auth", "chat", "home", "matching"]
