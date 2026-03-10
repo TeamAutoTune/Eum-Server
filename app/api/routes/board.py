@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, get_optional_current_user
 from app.models.user import User
 from app.schemas.board import (
     BoardPerformanceOut,
@@ -69,9 +69,9 @@ def create_review(
 @router.get("/free-posts", response_model=list[FreeBoardPostOut])
 def list_free_posts(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
-    posts = board_service.list_free_posts(db, current_user.id)
+    posts = board_service.list_free_posts(db, current_user.id if current_user else None)
     return [_post_to_schema(meta) for meta in posts]
 
 
