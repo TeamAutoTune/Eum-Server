@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 
 from app.api.routes import auth, board, chat, home, matching
 from app.core.config import settings
@@ -27,7 +28,9 @@ def create_app() -> FastAPI:
     app.include_router(home.router, prefix="/api/home", tags=["home"])
     app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
 
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+    static_dir = Path(__file__).resolve().parents[1] / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.get("/health", tags=["health"])
     def health_check() -> dict[str, bool]:
