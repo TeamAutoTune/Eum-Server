@@ -119,3 +119,45 @@ def list_team_member_nicknames(db: Session, team_id: int, include_leader: bool =
         if nickname:
             nicknames.append(nickname)
     return nicknames
+
+
+def leave_team(db: Session, team_id: int, nickname: str | None) -> dict[str, bool | str]:
+    cleaned_nickname = (nickname or "").strip()
+    if not cleaned_nickname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="nickname은 필수입니다.")
+
+    team = _get_team_or_404(db, team_id)
+    user = _get_user_by_nickname(db, cleaned_nickname)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+
+    member = db.scalar(
+        select(TeamMember)
+        .where(TeamMember.team_id == team_id, TeamMember.user_id == user.id)
+        .order_by(TeamMember.id.asc())
+    )
+    if not member:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="해당 팀의 멤버가 아닙니다.")
+
+    if member.role != "leader":
+        db.delete(member)
+        db.commit()
+        return {"ok": True, "team_deleted": False, "message": "팀에서 탈퇴했습니다."}
+
+    remaining_members = db.scalars(
+        select(TeamMember)
+        .where(TeamMember.team_id == team_id, TeamMember.user_id != user.id)
+        .order_by(TeamMember.id.asc())
+    ).all()
+
+    if not remaining_members:
+        db.delete(team)
+        db.commit()
+        return {"ok": True, "team_deleted": True, "message": "팀장이 탈퇴하여 팀이 삭제되었습니다."}
+
+    new_leader_member = remaining_members[0]
+    new_leader_member.role = "leader"
+    team.leader_id = new_leader_member.user_id
+    db.delete(member)
+    db.commit()
+    return {"ok": True, "team_deleted": False, "message": "팀장이 탈퇴하여 새 팀장에게 위임되었습니다."}

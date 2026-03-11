@@ -8,6 +8,8 @@ from app.schemas.team import (
     TeamCreateRequest,
     TeamCreateResponse,
     TeamDetailResponse,
+    TeamLeaveRequest,
+    TeamLeaveResponse,
     TeamListItemResponse,
 )
 from app.services import team_service
@@ -69,3 +71,18 @@ def get_team_detail(team_id: int, db: Session = Depends(get_db)):
         leader=team.leader.nickname,
         members=members,
     )
+
+
+@router.post(
+    "/{team_id}/leave",
+    response_model=TeamLeaveResponse,
+    responses={
+        400: {"description": "nickname 없음/빈값"},
+        403: {"description": "권한 없는 탈퇴 요청"},
+        404: {"description": "team_id 또는 nickname 사용자 없음"},
+        500: {"description": "서버 에러"},
+    },
+)
+def leave_team(team_id: int, payload: TeamLeaveRequest, db: Session = Depends(get_db)):
+    result = team_service.leave_team(db, team_id, payload.nickname)
+    return TeamLeaveResponse(**result)

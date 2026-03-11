@@ -40,3 +40,13 @@ class MyTeamItemResponse(BaseModel):
 class MyTeamResponse(BaseModel):
     has_team: bool
     team: MyTeamItemResponse | None = None
+
+
+class TeamLeaveRequest(BaseModel):
+    nickname: str | None = None
+
+
+class TeamLeaveResponse(BaseModel):
+    ok: bool
+    team_deleted: bool
+    message: str
