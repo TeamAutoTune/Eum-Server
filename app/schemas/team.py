@@ -81,3 +81,31 @@ class TeamLeaveResponse(BaseModel):
     ok: bool
     team_deleted: bool
     message: str
+
+
+class TeamInviteRequest(BaseModel):
+    nickname: str | None = Field(default=None, validation_alias=AliasChoices("nickname", "user_nickname"))
+    user_id: str | None = Field(default=None, validation_alias=AliasChoices("user_id", "target_user_id"))
+    team_id: int | None = None
+
+
+class TeamInviteResponse(BaseModel):
+    ok: bool
+    team_id: int
+    invited_user_id: str
+    invited_nickname: str
+    status: str
+
+
+class TeamInviteItemResponse(BaseModel):
+    invite_id: int
+    team_id: int
+    invited_user_id: str
+    invited_nickname: str
+    invited_by_user_id: str
+    invited_by_nickname: str
+    status: str
+
+
+class TeamInviteListResponse(BaseModel):
+    invites: list[TeamInviteItemResponse] = Field(default_factory=list)

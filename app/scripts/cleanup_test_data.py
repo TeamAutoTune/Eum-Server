@@ -11,7 +11,7 @@ from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
 from app.models.chat import ChatRoom, ChatRoomMember, Message
 from app.models.matching import MatchingProfile
-from app.models.team import Team, TeamChecklist, TeamMember, TeamNotice, TeamSchedule
+from app.models.team import Team, TeamChecklist, TeamInvite, TeamMember, TeamNotice, TeamSchedule
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 
@@ -28,6 +28,7 @@ def _prepare_schema() -> None:
         Base.metadata.create_all(bind=engine)
     else:
         TeamMatchingProfile.__table__.create(bind=engine, checkfirst=True)
+        TeamInvite.__table__.create(bind=engine, checkfirst=True)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -39,6 +40,7 @@ def run(args: argparse.Namespace) -> int:
         "profiles_deleted": 0,
         "teams_deleted": 0,
         "team_profiles_deleted": 0,
+        "team_invites_deleted": 0,
         "team_members_deleted": 0,
         "team_notices_deleted": 0,
         "team_checklists_deleted": 0,
@@ -62,6 +64,9 @@ def run(args: argparse.Namespace) -> int:
         if prefixed_team_ids:
             report["team_profiles_deleted"] = db.execute(
                 delete(TeamMatchingProfile).where(TeamMatchingProfile.team_id.in_(prefixed_team_ids))
+            ).rowcount or 0
+            report["team_invites_deleted"] = db.execute(
+                delete(TeamInvite).where(TeamInvite.team_id.in_(prefixed_team_ids))
             ).rowcount or 0
             report["team_notices_deleted"] = db.execute(
                 delete(TeamNotice).where(TeamNotice.team_id.in_(prefixed_team_ids))
