@@ -6,6 +6,7 @@ from pathlib import Path
 from app.api.routes import auth, board, chat, home, matching, team, team_checklist, team_notice, team_schedule
 from app.core.config import settings
 from app.db.base import Base
+from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
 from app.services import board_service
 
@@ -49,6 +50,7 @@ app = create_app()
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    apply_startup_migrations(engine)
 
     db = SessionLocal()
     try:
