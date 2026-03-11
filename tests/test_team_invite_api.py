@@ -152,3 +152,46 @@ def test_team_invite_blocks_non_leader() -> None:
     assert resp.json()["detail"] == "Only team leaders can invite users"
 
     app.dependency_overrides.clear()
+
+
+def test_team_invite_auto_accepts_test_account() -> None:
+    client, SessionLocal = _make_client_and_sessionmaker()
+
+    with SessionLocal() as db:
+        leader = _create_user(db, "leader4", "leader4")
+        target = _create_user(db, "t20260311_nick_150", "t20260311_user_150")
+        team = _create_team(db, "band-d", leader, [])
+        team_id = team.id
+        leader_id = leader.id
+        target_id = target.id
+
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=leader_id,
+        nickname="leader4",
+        user_id="leader4",
+        hashed_password="test-hash",
+        instrument="guitar",
+    )
+
+    resp = client.post(
+        f"/api/team/{team_id}/invite",
+        json={"user_id": target_id, "auto_accept_test": True},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "ok": True,
+        "team_id": team_id,
+        "invited_user_id": target_id,
+        "invited_nickname": "t20260311_nick_150",
+        "status": "joined",
+    }
+
+    with SessionLocal() as db:
+        invite = db.scalar(select(TeamInvite).where(TeamInvite.team_id == team_id, TeamInvite.invited_user_id == target_id))
+        member = db.scalar(select(TeamMember).where(TeamMember.team_id == team_id, TeamMember.user_id == target_id))
+        assert invite is not None
+        assert invite.status == "joined"
+        assert member is not None
+        assert member.role == "member"
+
+    app.dependency_overrides.clear()
