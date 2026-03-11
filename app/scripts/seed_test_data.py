@@ -12,7 +12,7 @@ from app.db.base import Base
 from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
 from app.models.matching import MatchingProfile
-from app.models.team import Team, TeamMember
+from app.models.team import Team, TeamInvite, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.scripts.test_data_support import (
@@ -49,6 +49,7 @@ def _prepare_schema() -> None:
         Base.metadata.create_all(bind=engine)
     else:
         TeamMatchingProfile.__table__.create(bind=engine, checkfirst=True)
+        TeamInvite.__table__.create(bind=engine, checkfirst=True)
 
 
 def run(args: argparse.Namespace) -> int:

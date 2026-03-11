@@ -1,13 +1,18 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
+from app.models.user import User
 from app.schemas.team import (
     MyTeamItemResponse,
     MyTeamResponse,
     TeamCreateRequest,
     TeamCreateResponse,
     TeamDetailResponse,
+    TeamInviteItemResponse,
+    TeamInviteListResponse,
+    TeamInviteRequest,
+    TeamInviteResponse,
     TeamLeaveRequest,
     TeamLeaveResponse,
     TeamListItemResponse,
@@ -85,6 +90,46 @@ def get_team_detail(team_id: int, db: Session = Depends(get_db)):
         genres=team_service.team_genres(team),
         gender_ratio=team.gender_ratio,
         reference_songs=team_service.team_reference_songs(team),
+    )
+
+
+@router.post("/{team_id}/invite", response_model=TeamInviteResponse)
+def invite_team_member(
+    team_id: int,
+    payload: TeamInviteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    invite = team_service.create_team_invite(db, team_id, payload, current_user)
+    return TeamInviteResponse(
+        ok=True,
+        team_id=invite.team_id,
+        invited_user_id=invite.invited_user_id,
+        invited_nickname=invite.invited_user.nickname,
+        status=invite.status,
+    )
+
+
+@router.get("/{team_id}/invites", response_model=TeamInviteListResponse)
+def get_team_invites(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    invites = team_service.list_team_invites(db, team_id, current_user)
+    return TeamInviteListResponse(
+        invites=[
+            TeamInviteItemResponse(
+                invite_id=invite.id,
+                team_id=invite.team_id,
+                invited_user_id=invite.invited_user_id,
+                invited_nickname=invite.invited_user.nickname,
+                invited_by_user_id=invite.invited_by_user_id,
+                invited_by_nickname=invite.invited_by_user.nickname,
+                status=invite.status,
+            )
+            for invite in invites
+        ]
     )
 
 
