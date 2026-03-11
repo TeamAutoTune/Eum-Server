@@ -3,6 +3,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.models.chat import ChatRoom, ChatRoomMember, Message
+from app.models.matching import MatchingProfile
 from app.models.user import User
 
 
@@ -75,4 +76,10 @@ def create_message(db: Session, room_id: str, sender_id: str, content: str) -> M
 
 
 def list_chat_candidates(db: Session, me_id: str) -> list[User]:
-    return db.scalars(select(User).where(User.id != me_id).order_by(User.created_at.desc())).all()
+    # Unify eligibility with matching: only users with onboarding profile are chat candidates.
+    return db.scalars(
+        select(User)
+        .join(MatchingProfile, MatchingProfile.user_id == User.id)
+        .where(User.id != me_id)
+        .order_by(User.created_at.desc())
+    ).all()

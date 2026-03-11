@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.matching import MatchingProfile
 from app.models.user import User
+from app.services import chat_service
 from app.services.recommendation_logging import log_match_event, log_match_features
 
 
@@ -520,22 +521,38 @@ def _safe_log_match_event(**kwargs: Any) -> None:
 
 
 def list_candidates(db: Session, exclude_user_id: str | None = None) -> list[dict]:
+    if exclude_user_id:
+        base_users = chat_service.list_chat_candidates(db, exclude_user_id)
+    else:
+        base_users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+
+    base_ids = [user.id for user in base_users]
+    if not base_ids:
+        return []
+
     rows = db.execute(
-        select(User, MatchingProfile).join(MatchingProfile, MatchingProfile.user_id == User.id)
+        select(User, MatchingProfile)
+        .join(MatchingProfile, MatchingProfile.user_id == User.id)
+        .where(User.id.in_(base_ids))
     ).all()
 
-    candidates: list[dict] = []
-    for user, matching_profile in rows:
-        if exclude_user_id and user.id == exclude_user_id:
-            continue
+    profile_by_user_id: dict[str, tuple[User, MatchingProfile]] = {
+        user.id: (user, matching_profile)
+        for user, matching_profile in rows
+    }
 
+    candidates: list[dict] = []
+    for user in base_users:
+        pair = profile_by_user_id.get(user.id)
+        if not pair:
+            continue
+        profile_user, matching_profile = pair
         candidate = {
-            "id": user.id,
-            "nickname": user.nickname,
+            "id": profile_user.id,
+            "nickname": profile_user.nickname,
             **(matching_profile.candidate_data or {}),
         }
         candidates.append(candidate)
-
     return candidates
 
 
