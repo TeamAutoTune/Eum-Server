@@ -21,6 +21,8 @@ def signup(db: Session, payload: SignupRequest) -> TokenOut:
         user_id=payload.user_id,
         hashed_password=hash_password(payload.password),
         instrument=payload.instrument,
+        gender=payload.gender,
+        age=payload.age,
     )
     db.add(user)
     db.commit()

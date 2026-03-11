@@ -10,4 +10,6 @@ class UserOut(BaseModel):
     nickname: str
     user_id: str
     instrument: str
+    gender: str | None = None
+    age: int | None = None
     created_at: datetime

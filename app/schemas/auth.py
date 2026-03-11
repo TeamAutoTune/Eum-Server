@@ -8,6 +8,8 @@ class SignupRequest(BaseModel):
     user_id: str = Field(min_length=4, max_length=30)
     password: str = Field(min_length=4, max_length=128)
     instrument: str = Field(default="Unknown", min_length=1, max_length=50)
+    gender: str | None = Field(default=None, max_length=20)
+    age: int | None = Field(default=None, ge=0, le=120)
 
 
 class LoginRequest(BaseModel):
