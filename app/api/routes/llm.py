@@ -4,6 +4,15 @@ from fastapi import APIRouter, Body
 from pydantic import ValidationError
 
 from app.schemas.llm import LLMChatRequest, LLMChatResponse
+from app.schemas.llm import LLMTestSummaryRequest, LLMTestSummaryResponse
+from app.services.gemini_test_summary_service import (
+    GeminiCallError,
+    GeminiConfigError,
+    GeminiEmptyResponseError,
+    GeminiInputError,
+    GeminiTestSummaryError,
+    generate_test_summary,
+)
 from app.services.llm_service import (
     LLMAuthError,
     LLMConfigError,
@@ -49,6 +58,30 @@ def llm_chat(raw_payload: dict[str, Any] = Body(...)):
         return LLMChatResponse(
             success=False,
             answer=None,
+            error_code="INTERNAL_ERROR",
+            message="Unexpected server error occurred.",
+        )
+
+
+@router.post("/test-summary", response_model=LLMTestSummaryResponse)
+def llm_test_summary(payload: LLMTestSummaryRequest):
+    try:
+        summary = generate_test_summary(
+            instruments=payload.instruments,
+            parts=payload.parts,
+            genres=payload.genres,
+            region=payload.region,
+            availability=payload.availability,
+        )
+        return LLMTestSummaryResponse(success=True, summary=summary, error_code=None, message=None)
+    except (GeminiConfigError, GeminiInputError, GeminiCallError, GeminiEmptyResponseError) as exc:
+        return LLMTestSummaryResponse(success=False, summary=None, error_code=exc.error_code, message=exc.message)
+    except GeminiTestSummaryError as exc:
+        return LLMTestSummaryResponse(success=False, summary=None, error_code=exc.error_code, message=exc.message)
+    except Exception:
+        return LLMTestSummaryResponse(
+            success=False,
+            summary=None,
             error_code="INTERNAL_ERROR",
             message="Unexpected server error occurred.",
         )
