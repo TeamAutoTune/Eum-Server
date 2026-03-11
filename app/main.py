@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from app.api.routes import auth, board, chat, home, matching, team, team_checklist, team_notice, team_schedule
+from app.api.routes import auth, board, chat, home, llm, matching, team, team_checklist, team_notice, team_schedule
 from app.core.config import settings
 from app.db.base import Base
 from app.db.migrations import apply_startup_migrations
@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     app.include_router(board.router, prefix="/api/board", tags=["board"])
     app.include_router(board.upload_router, prefix="/api", tags=["uploads"])
     app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+    app.include_router(llm.router, prefix="/api/llm", tags=["llm"])
     app.include_router(home.router, prefix="/api/home", tags=["home"])
     app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
     app.include_router(team.router, prefix="/api/team", tags=["team"])

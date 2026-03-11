@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     )
     database_url: str = Field(default="sqlite:///./eum.db", validation_alias="DATABASE_URL")
     cors_origins: list[str] | str = Field(default=["*"], validation_alias="CORS_ORIGINS")
+    llm_api_key: str | None = Field(default=None, validation_alias="LLM_API_KEY")
+    llm_model: str = Field(default="gpt-4o-mini", validation_alias="LLM_MODEL")
+    llm_base_url: str = Field(default="https://api.openai.com/v1", validation_alias="LLM_BASE_URL")
+    llm_timeout_seconds: float = Field(default=15.0, validation_alias="LLM_TIMEOUT_SECONDS")
+    llm_max_retries: int = Field(default=1, validation_alias="LLM_MAX_RETRIES")
+    llm_summary_top_n: int = Field(default=3, validation_alias="LLM_SUMMARY_TOP_N")
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[2] / ".env"),
