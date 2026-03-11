@@ -23,3 +23,10 @@ class TokenOut(BaseModel):
 
 class UserCountOut(BaseModel):
     count: int
+
+
+class UserCountStatsOut(BaseModel):
+    total_users: int
+    seeded_test_users: int
+    heuristic_test_users: int
+    probable_real_signup_users: int

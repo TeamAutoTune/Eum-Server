@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.schemas.auth import LoginRequest, SignupRequest, TokenOut, UserCountOut
+from app.schemas.auth import LoginRequest, SignupRequest, TokenOut, UserCountOut, UserCountStatsOut
 from app.schemas.common import UserOut
 from app.services import auth_service
 
@@ -13,6 +13,11 @@ router = APIRouter()
 @router.get("/count", response_model=UserCountOut)
 def count_users(db: Session = Depends(get_db)):
     return UserCountOut(count=auth_service.count_users(db))
+
+
+@router.get("/count-stats", response_model=UserCountStatsOut)
+def count_user_stats(db: Session = Depends(get_db)):
+    return UserCountStatsOut(**auth_service.count_user_stats(db))
 
 
 @router.post("/signup", response_model=TokenOut)

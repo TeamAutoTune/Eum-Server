@@ -56,3 +56,25 @@ def test_auth_count_returns_user_count() -> None:
     assert resp.json() == {"count": 3}
 
     app.dependency_overrides.clear()
+
+
+def test_auth_count_stats_splits_seed_and_heuristic_test_users() -> None:
+    client, SessionLocal = _make_client_and_sessionmaker()
+
+    with SessionLocal() as db:
+        _create_user(db, "real-user", "guitarhero")
+        _create_user(db, "Seed Nick (test)-001", "seed_test_001")
+        _create_user(db, "demo-band", "user_demo_01")
+        _create_user(db, "normal", "dummy_account")
+        db.commit()
+
+    resp = client.get("/api/auth/count-stats")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "total_users": 4,
+        "seeded_test_users": 1,
+        "heuristic_test_users": 2,
+        "probable_real_signup_users": 1,
+    }
+
+    app.dependency_overrides.clear()
