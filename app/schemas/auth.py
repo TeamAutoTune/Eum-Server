@@ -19,3 +19,7 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class UserCountOut(BaseModel):
+    count: int

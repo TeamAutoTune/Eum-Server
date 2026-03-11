@@ -1,10 +1,14 @@
 ﻿from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth import LoginRequest, SignupRequest, TokenOut
+
+
+def count_users(db: Session) -> int:
+    return db.scalar(select(func.count()).select_from(User)) or 0
 
 
 def signup(db: Session, payload: SignupRequest) -> TokenOut:
