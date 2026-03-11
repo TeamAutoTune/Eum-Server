@@ -45,7 +45,21 @@ def build_export_path(prefix: str, output_dir: str | Path, extension: str) -> Pa
     return base / f"{prefix}_seed_export.{extension}"
 
 
-def choose_region(rng: random.Random) -> tuple[str, str, str]:
+def choose_region(rng: random.Random, force_sido: str | None = None) -> tuple[str, str, str]:
+    normalized_force_sido = (force_sido or "").strip()
+    if normalized_force_sido == "서울특별시":
+        sido = "서울특별시"
+        sigungu = rng.choice(SEOUL_SIGUNGU)
+        return sido, sigungu, f"{sido} {sigungu}"
+    if normalized_force_sido == "경기도":
+        sido = "경기도"
+        sigungu = rng.choice(GYEONGGI_SIGUNGU)
+        return sido, sigungu, f"{sido} {sigungu}"
+    if normalized_force_sido == "인천광역시":
+        sido = "인천광역시"
+        sigungu = rng.choice(INCHEON_SIGUNGU)
+        return sido, sigungu, f"{sido} {sigungu}"
+
     roll = rng.random()
     if roll < 0.75:
         sido = "서울특별시"
@@ -80,13 +94,18 @@ def choose_time_slots(rng: random.Random) -> list[str]:
     return rng.sample(TIME_SLOTS, k=rng.randint(1, 3))
 
 
-def generate_user_profile(prefix: str, index: int, rng: random.Random) -> tuple[dict, dict]:
+def generate_user_profile(
+    prefix: str,
+    index: int,
+    rng: random.Random,
+    force_sido: str | None = None,
+) -> tuple[dict, dict]:
     del prefix
     instruments = choose_instruments(rng)
     parts = choose_parts(instruments, rng)
     genres = choose_genres(rng)
     goals = choose_goals(rng)
-    activity_region_sido, activity_region_sigungu, activity_region = choose_region(rng)
+    activity_region_sido, activity_region_sigungu, activity_region = choose_region(rng, force_sido=force_sido)
     available_slots = choose_time_slots(rng)
     practice_frequency = rng.choice(PRACTICE_FREQUENCIES)
     performance_style = rng.choice(PERFORMANCE_STYLES)
@@ -147,10 +166,11 @@ def generate_team_seed(
     prefix: str,
     index: int,
     rng: random.Random,
+    force_sido: str | None = None,
 ) -> tuple[dict, dict, list[dict], str]:
     team_genres = choose_genres(rng)
     goals = choose_goals(rng)
-    region_sido, region_sigungu, region_text = choose_region(rng)
+    region_sido, region_sigungu, region_text = choose_region(rng, force_sido=force_sido)
     practice_frequency = rng.choice(PRACTICE_FREQUENCIES)
     average_age = rng.choice(AGE_GROUPS)
     recruiting_sessions = choose_instruments(rng)

@@ -48,15 +48,16 @@ def list_chat_users(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    users = chat_service.list_chat_candidates(db, current_user.id)
+    users = chat_service.list_chat_candidate_profiles(db, current_user.id)
     return [
         ChatUserOut(
             id=user.id,
             nickname=user.nickname,
             user_id=user.user_id,
             instrument=user.instrument,
+            profileData=matching_profile.profile_data or {},
         )
-        for user in users
+        for user, matching_profile in users
     ]
 
 
