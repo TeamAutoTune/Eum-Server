@@ -72,6 +72,187 @@ def _normalized_list_from(value: Any) -> list[str]:
     return [_norm_text(v) for v in _safe_list(value) if _norm_text(v)]
 
 
+def _first_non_empty(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, "", [], {}):
+            return value
+    return None
+
+
+def _extract_activity_goals_raw(data: dict[str, Any]) -> list[Any]:
+    activity_goal_raw = data.get("activityGoal")
+    activity_goal = _safe_dict(activity_goal_raw)
+    goals = _safe_list(
+        _first_non_empty(
+            data.get("goals"),
+            data.get("activityGoals"),
+            activity_goal.get("activityGoals"),
+            data.get("activity_goal"),
+            activity_goal_raw if isinstance(activity_goal_raw, (str, list)) else None,
+        )
+    )
+    return goals
+
+
+def _extract_recruit_needs_raw(data: dict[str, Any]) -> list[dict[str, Any]]:
+    needs = _safe_list(_first_non_empty(data.get("recruitNeeds"), data.get("recruit_needs")))
+    return [item for item in needs if isinstance(item, dict)]
+
+
+def _extract_recruiting_sessions_raw(
+    data: dict[str, Any],
+    *,
+    fallback_to_instruments: bool = False,
+) -> list[Any]:
+    explicit = _safe_list(_first_non_empty(data.get("recruitingSessions"), data.get("recruiting_sessions")))
+    if explicit:
+        return explicit
+
+    recruit_needs = _extract_recruit_needs_raw(data)
+    derived = [need.get("instrument") for need in recruit_needs if _safe_text(need.get("instrument"))]
+    if derived:
+        return derived
+
+    if fallback_to_instruments:
+        return _safe_list(_first_non_empty(data.get("instruments"), data.get("playableInstruments")))
+
+    return []
+
+
+def _extract_region_fields(data: dict[str, Any]) -> tuple[str, str, str]:
+    perf = _safe_dict(data.get("performancePreferences"))
+    region_text = _safe_text(
+        _first_non_empty(
+            data.get("region"),
+            perf.get("activityRegion"),
+        )
+    )
+    parsed_sido, parsed_sigungu = _extract_region_parts(region_text)
+    region_sido = _safe_text(
+        _first_non_empty(
+            data.get("regionSido"),
+            data.get("region_sido"),
+            perf.get("activityRegionSido"),
+            parsed_sido,
+        )
+    )
+    region_sigungu = _safe_text(
+        _first_non_empty(
+            data.get("regionSigungu"),
+            data.get("region_sigungu"),
+            perf.get("activityRegionSigungu"),
+            parsed_sigungu,
+        )
+    )
+    return region_text, region_sido, region_sigungu
+
+
+def _extract_lifestyle_fields(data: dict[str, Any]) -> dict[str, Any]:
+    lifestyle = _safe_dict(data.get("lifestyle"))
+    return {
+        "drink": _safe_text(_first_non_empty(lifestyle.get("drink"), data.get("drink"))),
+        "smoking": _safe_text(_first_non_empty(lifestyle.get("smoking"), data.get("smoking"))),
+        "social": _safe_text(_first_non_empty(lifestyle.get("social"), data.get("social"))),
+        "meal": _safe_text(_first_non_empty(lifestyle.get("meal"), data.get("meal"))),
+    }
+
+
+def _build_engine_payload(
+    data: dict[str, Any],
+    *,
+    fallback_to_instruments_for_recruiting: bool = False,
+) -> dict[str, Any]:
+    data = data or {}
+    team_profile = _safe_dict(data.get("teamProfile"))
+    leader_profile = _safe_dict(data.get("leaderProfile"))
+    merged = dict(data)
+    merged.update(team_profile)
+
+    perf = _safe_dict(merged.get("performancePreferences"))
+    match_conditions = _safe_dict(merged.get("matchConditions"))
+    region_text, region_sido, region_sigungu = _extract_region_fields(merged)
+    activity_goals = _extract_activity_goals_raw(merged)
+    recruit_needs = _extract_recruit_needs_raw(merged)
+    recruiting_sessions = _extract_recruiting_sessions_raw(
+        merged,
+        fallback_to_instruments=fallback_to_instruments_for_recruiting,
+    )
+    instruments = _safe_list(_first_non_empty(merged.get("instruments"), merged.get("playableInstruments")))
+    parts = _safe_list(_first_non_empty(merged.get("parts"), merged.get("primaryParts")))
+    genres = _safe_list(_first_non_empty(merged.get("genres"), merged.get("preferredGenres")))
+    availability = _safe_list(
+        _first_non_empty(
+            merged.get("availableTimes"),
+            merged.get("availability"),
+            perf.get("availableTimeSlots"),
+        )
+    )
+    practice_frequency = _safe_text(
+        _first_non_empty(
+            merged.get("practiceFrequency"),
+            perf.get("practiceFrequency"),
+        )
+    )
+    style = _safe_text(
+        _first_non_empty(
+            merged.get("style"),
+            perf.get("performanceStyle"),
+            leader_profile.get("style"),
+            _safe_dict(leader_profile.get("performancePreferences")).get("performanceStyle"),
+        )
+    )
+    age_group = _safe_text(_first_non_empty(merged.get("ageGroup"), merged.get("averageAge")))
+    lifestyle = _extract_lifestyle_fields(merged)
+    if not any(lifestyle.values()) and leader_profile:
+        lifestyle = _extract_lifestyle_fields(leader_profile)
+
+    normalized = dict(merged)
+    normalized["instruments"] = instruments
+    normalized["playableInstruments"] = instruments
+    normalized["parts"] = parts
+    normalized["primaryParts"] = parts
+    normalized["genres"] = genres
+    normalized["preferredGenres"] = genres
+    normalized["goals"] = activity_goals
+    normalized["activityGoal"] = {"activityGoals": activity_goals}
+    normalized["availability"] = availability
+    normalized["availableTimes"] = availability
+    normalized["practiceFrequency"] = practice_frequency
+    normalized["style"] = style
+    normalized["region"] = region_text or region_sido
+    normalized["regionSido"] = region_sido
+    normalized["regionSigungu"] = region_sigungu
+    normalized["ageGroup"] = age_group
+    if not normalized.get("averageAge"):
+        normalized["averageAge"] = age_group
+    normalized["lifestyle"] = lifestyle
+    normalized["recruitNeeds"] = recruit_needs
+    normalized["recruitingSessions"] = recruiting_sessions
+    normalized["performancePreferences"] = {
+        "performanceStyle": style,
+        "activityRegion": region_text,
+        "activityRegionSido": region_sido,
+        "activityRegionSigungu": region_sigungu,
+        "availableTimeSlots": availability,
+        "practiceFrequency": practice_frequency,
+    }
+    normalized["matchConditions"] = {
+        "requiredConditions": _safe_list(
+            _first_non_empty(
+                match_conditions.get("requiredConditions"),
+                data.get("requiredConditions"),
+            )
+        ),
+        "avoidConditions": _safe_list(
+            _first_non_empty(
+                match_conditions.get("avoidConditions"),
+                data.get("avoidConditions"),
+            )
+        ),
+    }
+    return normalized
+
+
 def _load_band_matching() -> tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any], Callable[..., Any], Callable[..., Any], bool]:
     for module_path in _BAND_MATCHING_CANDIDATE_PATHS:
         if not module_path.exists():
@@ -305,20 +486,32 @@ def _get_top_matches_fallback(
 
 
 def _profile_region_sido(profile: dict) -> str:
-    perf = profile.get("performancePreferences") or {}
-    return str(perf.get("activityRegionSido") or "").strip()
+    return _safe_text(
+        _first_non_empty(
+            profile.get("regionSido"),
+            _safe_dict(profile.get("performancePreferences")).get("activityRegionSido"),
+        )
+    )
 
 
 def _profile_instruments(profile: dict) -> set[str]:
     return {
         str(item).strip()
-        for item in _safe_list(profile.get("playableInstruments"))
+        for item in _safe_list(_first_non_empty(profile.get("instruments"), profile.get("playableInstruments")))
+        if str(item).strip()
+    }
+
+
+def _profile_recruiting_sessions(profile: dict) -> set[str]:
+    return {
+        str(item).strip()
+        for item in _safe_list(_first_non_empty(profile.get("recruitingSessions"), profile.get("recruiting_sessions")))
         if str(item).strip()
     }
 
 
 def _candidate_region_sido(candidate: dict) -> str:
-    return str(candidate.get("regionSido") or "").strip()
+    return _safe_text(candidate.get("regionSido"))
 
 
 def _candidate_instruments(candidate: dict) -> set[str]:
@@ -329,9 +522,22 @@ def _candidate_instruments(candidate: dict) -> set[str]:
     }
 
 
-def _passes_hard_filters(profile: dict, candidate: dict, hard_filters: dict) -> tuple[bool, str]:
+def _candidate_recruiting_sessions(candidate: dict) -> set[str]:
+    return {
+        str(item).strip()
+        for item in _safe_list(candidate.get("recruitingSessions"))
+        if str(item).strip()
+    }
+
+
+def _passes_hard_filters(profile: dict, candidate: dict, hard_filters: dict, mode: str) -> tuple[bool, str]:
     if hard_filters.get("same_instrument"):
-        if not (_profile_instruments(profile) & _candidate_instruments(candidate)):
+        if mode == "apply":
+            candidate_sessions = _candidate_recruiting_sessions(candidate) or _candidate_instruments(candidate)
+            overlap = _profile_instruments(profile) & candidate_sessions
+        else:
+            overlap = (_profile_recruiting_sessions(profile) or _profile_instruments(profile)) & _candidate_instruments(candidate)
+        if not overlap:
             return False, "same_instrument_mismatch"
 
     if hard_filters.get("same_region"):
@@ -348,6 +554,12 @@ def _merge_recruit_needs(profile: dict, recruit_needs: list[dict]) -> dict:
         return profile
     merged = dict(profile)
     merged["recruitNeeds"] = recruit_needs
+    if not merged.get("recruitingSessions"):
+        merged["recruitingSessions"] = [
+            need.get("instrument")
+            for need in recruit_needs
+            if isinstance(need, dict) and _safe_text(need.get("instrument"))
+        ]
     return merged
 
 
@@ -390,19 +602,25 @@ def _is_onboarding_done_candidate(candidate: dict) -> bool:
 
 def _is_mode_eligible_candidate(candidate: dict, mode: str) -> bool:
     if mode == "recruit":
-        return bool(_safe_list(candidate.get("instruments")) and _safe_list(candidate.get("parts")))
-    return bool(_safe_list(candidate.get("instruments")))
+        return bool(_safe_list(candidate.get("instruments")))
+    return bool(
+        _safe_list(candidate.get("recruitingSessions"))
+        or _safe_list(candidate.get("recruitNeeds"))
+        or _safe_list(candidate.get("instruments"))
+    )
 
 
 def _mode_eligibility_reason(candidate: dict, mode: str) -> str:
     if mode == "recruit":
         if not _safe_list(candidate.get("instruments")):
             return "missing_instruments_for_recruit"
-        if not _safe_list(candidate.get("parts")):
-            return "missing_parts_for_recruit"
         return "eligible"
-    if not _safe_list(candidate.get("instruments")):
-        return "missing_instruments_for_apply"
+    if not (
+        _safe_list(candidate.get("recruitingSessions"))
+        or _safe_list(candidate.get("recruitNeeds"))
+        or _safe_list(candidate.get("instruments"))
+    ):
+        return "missing_sessions_for_apply"
     return "eligible"
 
 
@@ -413,88 +631,14 @@ def _append_reason_sample(samples: list[str], value: str, max_items: int = 5) ->
 
 
 def _normalize_profile_for_engine(profile: dict, hard_filters: dict) -> dict:
-    profile = profile or {}
-    perf = _safe_dict(profile.get("performancePreferences"))
-    activity_goal_raw = profile.get("activityGoal")
-    activity_goal = _safe_dict(activity_goal_raw)
-    match_conditions = _safe_dict(profile.get("matchConditions"))
-
-    region_text = _safe_text(perf.get("activityRegion") or profile.get("region"))
-    parsed_sido, parsed_sigungu = _extract_region_parts(region_text)
-    region_sido = _norm_text(perf.get("activityRegionSido") or profile.get("region_sido") or parsed_sido)
-    region_sigungu = _norm_text(perf.get("activityRegionSigungu") or profile.get("region_sigungu") or parsed_sigungu)
-
-    activity_goals = _normalized_list_from(activity_goal.get("activityGoals") or profile.get("activityGoals"))
-    if not activity_goals:
-        if isinstance(activity_goal_raw, str):
-            activity_goals = _normalized_list_from([activity_goal_raw])
-        elif profile.get("activity_goal"):
-            activity_goals = _normalized_list_from([profile.get("activity_goal")])
-
-    normalized = dict(profile)
-    normalized["playableInstruments"] = _normalized_list_from(
-        profile.get("playableInstruments") or profile.get("instruments")
-    )
-    normalized["primaryParts"] = _normalized_list_from(
-        profile.get("primaryParts") or profile.get("parts")
-    )
-    normalized["preferredGenres"] = _normalized_list_from(
-        profile.get("preferredGenres") or profile.get("genres")
-    )
-
-    normalized_perf = {
-        "performanceStyle": _norm_text(perf.get("performanceStyle") or profile.get("style")),
-        "activityRegion": region_text,
-        "activityRegionSido": region_sido,
-        "activityRegionSigungu": region_sigungu,
-        "availableTimeSlots": _normalized_list_from(
-            perf.get("availableTimeSlots") or profile.get("availability")
-        ),
-        "practiceFrequency": _norm_text(perf.get("practiceFrequency") or profile.get("practiceFrequency")),
-    }
-    if not hard_filters.get("same_region"):
-        normalized_perf["activityRegionSido"] = ""
-        normalized_perf["activityRegionSigungu"] = ""
-
-    normalized["performancePreferences"] = normalized_perf
-    normalized["activityGoal"] = {"activityGoals": activity_goals}
-    normalized["matchConditions"] = {
-        "requiredConditions": _normalized_list_from(
-            match_conditions.get("requiredConditions") or profile.get("requiredConditions")
-        ),
-        "avoidConditions": _normalized_list_from(
-            match_conditions.get("avoidConditions") or profile.get("avoidConditions")
-        ),
-    }
-
-    normalized_needs: list[dict] = []
-    for need in _safe_list(profile.get("recruitNeeds")):
-        if not isinstance(need, dict):
-            continue
-        normalized_needs.append(
-            {
-                **need,
-                "instrument": _norm_text(need.get("instrument")),
-                "part": _norm_text(need.get("part")),
-            }
-        )
-    normalized["recruitNeeds"] = normalized_needs
-    return normalized
+    del hard_filters
+    return _build_engine_payload(profile, fallback_to_instruments_for_recruiting=False)
 
 
 def _normalize_candidate_for_engine(candidate: dict) -> dict:
-    normalized = dict(candidate)
-    normalized["instruments"] = [_norm_text(v) for v in _safe_list(candidate.get("instruments")) if _norm_text(v)]
-    normalized["parts"] = [_norm_text(v) for v in _safe_list(candidate.get("parts")) if _norm_text(v)]
-    normalized["genres"] = [_norm_text(v) for v in _safe_list(candidate.get("genres")) if _norm_text(v)]
-    normalized["style"] = _norm_text(candidate.get("style"))
-    normalized["regionSido"] = _norm_text(candidate.get("regionSido"))
-    normalized["regionSigungu"] = _norm_text(candidate.get("regionSigungu"))
-    normalized["availability"] = [_norm_text(v) for v in _safe_list(candidate.get("availability")) if _norm_text(v)]
-    normalized["practiceFrequency"] = _norm_text(candidate.get("practiceFrequency"))
-    normalized["activityGoal"] = _norm_text(candidate.get("activityGoal"))
-    normalized["tags"] = [_norm_text(v) for v in _safe_list(candidate.get("tags")) if _norm_text(v)]
-    return normalized
+    profile_data = _safe_dict(candidate.get("_profile_data"))
+    merged = {**profile_data, **candidate}
+    return _build_engine_payload(merged, fallback_to_instruments_for_recruiting=True)
 
 
 def _safe_log_match_features(**kwargs: Any) -> None:
@@ -550,6 +694,7 @@ def list_candidates(db: Session, exclude_user_id: str | None = None) -> list[dic
         candidate = {
             "id": profile_user.id,
             "nickname": profile_user.nickname,
+            "_profile_data": matching_profile.profile_data or {},
             **(matching_profile.candidate_data or {}),
         }
         candidates.append(candidate)
@@ -614,7 +759,7 @@ def recommend_matches(
         hard_filter_excluded_samples: list[str] = []
         for raw_candidate in mode_eligible_candidates:
             engine_candidate = _normalize_candidate_for_engine(raw_candidate)
-            passed, reason = _passes_hard_filters(engine_profile, engine_candidate, hard_filters)
+            passed, reason = _passes_hard_filters(engine_profile, engine_candidate, hard_filters, mode)
             if passed:
                 candidate_pairs.append((raw_candidate, engine_candidate))
             else:

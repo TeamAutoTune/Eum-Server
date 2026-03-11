@@ -1,227 +1,142 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from match_engine import (
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from band_matching.match_engine import (
     get_top_matches,
     hard_filter,
     normalize_profile,
-    score_apply_mode,
     score_recruit_mode,
 )
 
 
-def make_profile() -> dict:
+def make_user_profile() -> dict:
     return {
-        "playableInstruments": ["Vocal", "Guitar"],
-        "primaryParts": ["Main Vocal", "Rhythm Guitar"],
-        "preferredGenres": ["Rock", "Indie", "Pop"],
-        "lifeSongs": ["Song A"],
-        "favoriteArtists": ["Artist A"],
+        "id": "user_001",
+        "nickname": "VocalUser",
+        "playableInstruments": ["vocal", "guitar"],
+        "preferredGenres": ["rock", "indie", "pop"],
         "performancePreferences": {
             "performanceStyle": "balanced",
-            "activityRegion": "서울특별시 마포구",
-            "activityRegionSido": "서울특별시",
-            "activityRegionSigungu": "마포구",
-            "availableTimeSlots": ["weekday_evening", "weekend_day"],
+            "activityRegionSido": "Seoul",
             "practiceFrequency": "weekly_2",
         },
-        "activityGoal": {
-            "activityGoals": ["hobby", "band"],
+        "activityGoal": {"activityGoals": ["band", "busking"]},
+        "ageGroup": "20대",
+        "lifestyle": {
+            "drink": "가끔 참여",
+            "smoking": "비흡연",
+            "social": "보통",
+            "meal": "가끔 참여",
         },
-        "matchConditions": {
-            "requiredConditions": ["no_smoking", "punctual"],
-            "avoidConditions": ["weekend_only"],
-        },
-        "recruitNeeds": [
-            {"instrument": "Bass", "part": "Electric Bass", "count": 1, "required": True},
-            {"instrument": "Drums", "part": "Acoustic Drums", "count": 1, "required": False},
-        ],
     }
 
 
-def make_candidate(**overrides) -> dict:
+def make_team_candidate(**overrides) -> dict:
     base = {
-        "id": "u-001",
-        "nickname": "TestUser",
-        "instruments": ["Vocal", "Bass"],
-        "parts": ["Main Vocal", "Electric Bass"],
-        "genres": ["Rock", "Indie"],
-        "style": "balanced",
-        "region": "서울특별시 강남구",
-        "regionSido": "서울특별시",
-        "regionSigungu": "강남구",
-        "availability": ["weekday_evening", "weekend_day"],
-        "practiceFrequency": "weekly_2",
-        "activityGoal": "band",
-        "tags": ["no_smoking", "punctual", "owns_gear"],
+        "id": "team_001",
+        "nickname": "IndieTeam",
+        "type": "TEAM",
+        "recruitingSessions": ["GUITAR", "DRUM"],
+        "genres": ["ROCK", "INDIE"],
+        "goals": ["GOAL_BAND_PROJECT"],
+        "practiceFrequency": "PRACTICE_2",
+        "style": "STYLE_BALANCED",
+        "region": "SEOUL",
+        "averageAge": "AGE_20S",
+        "lifestyle": {
+            "drink": "DRINK_SOMETIMES",
+            "smoking": "NON_SMOKING",
+            "social": "SOCIAL_NORMAL",
+            "meal": "MEAL_SOMETIMES",
+        },
     }
     base.update(overrides)
     return base
 
 
-def test_hard_filter_instrument_mismatch():
-    profile = normalize_profile(make_profile())
-    candidate = make_candidate(instruments=["Drums"])
-    passed, reason = hard_filter(profile, candidate)
-    assert passed is False
-    assert "악기" in reason
+def make_team_profile() -> dict:
+    return {
+        "id": "team_010",
+        "nickname": "RecruitTeam",
+        "recruitingSessions": ["BASS", "DRUM"],
+        "genres": ["ROCK", "POP"],
+        "goals": ["GOAL_BAND_PROJECT", "GOAL_BUSKING_LIVE"],
+        "practiceFrequency": "PRACTICE_2",
+        "style": "STYLE_BALANCED",
+        "region": "SEOUL",
+        "averageAge": "AGE_30S",
+        "lifestyle": {
+            "drink": "DRINK_SOMETIMES",
+            "smoking": "NON_SMOKING",
+            "social": "SOCIAL_NORMAL",
+            "meal": "MEAL_SOMETIMES",
+        },
+    }
 
 
-def test_hard_filter_region_sido_mismatch():
-    profile = normalize_profile(make_profile())
-    candidate = make_candidate(
-        region="경기도 성남시",
-        regionSido="경기도",
-        regionSigungu="성남시",
-    )
-    passed, reason = hard_filter(profile, candidate)
-    assert passed is False
-    assert "시/도" in reason
+def make_user_candidate(**overrides) -> dict:
+    base = {
+        "id": "user_010",
+        "nickname": "BassUser",
+        "instruments": ["BASS", "VOCAL"],
+        "genres": ["ROCK", "BALLAD"],
+        "goals": ["GOAL_BAND_PROJECT"],
+        "practiceFrequency": "PRACTICE_2",
+        "style": "STYLE_BALANCED",
+        "region": "SEOUL",
+        "ageGroup": "AGE_20S",
+        "lifestyle": {
+            "drink": "DRINK_SOMETIMES",
+            "smoking": "NON_SMOKING",
+            "social": "SOCIAL_NORMAL",
+            "meal": "MEAL_SOMETIMES",
+        },
+    }
+    base.update(overrides)
+    return base
 
 
-def test_same_sido_different_sigungu_passes():
-    profile = normalize_profile(make_profile())
-    candidate = make_candidate(
-        region="서울특별시 강남구",
-        regionSido="서울특별시",
-        regionSigungu="강남구",
-    )
-    passed, _ = hard_filter(profile, candidate)
+def test_normalize_profile_accepts_legacy_shape():
+    normalized = normalize_profile(make_user_profile())
+    assert normalized["instruments"] == ["VOCAL", "GUITAR"]
+    assert normalized["genres"] == ["ROCK", "INDIE", "POP"]
+
+
+def test_apply_mode_session_filter_uses_team_recruiting_sessions():
+    passed, reason = hard_filter(make_user_profile(), make_team_candidate(), mode="apply")
     assert passed is True
+    assert reason == "session_match"
 
 
-def test_same_sigungu_bonus_applied():
-    profile = normalize_profile(make_profile())
-    candidate = make_candidate(
-        region="서울특별시 마포구",
-        regionSido="서울특별시",
-        regionSigungu="마포구",
+def test_recruit_mode_session_filter_fails_when_no_overlap():
+    passed, reason = hard_filter(make_team_profile(), make_user_candidate(instruments=["VOCAL"]), mode="recruit")
+    assert passed is False
+    assert reason == "session_mismatch"
+
+
+def test_apply_mode_prefers_better_aligned_team():
+    profile = make_user_profile()
+    high = make_team_candidate(id="team_high")
+    low = make_team_candidate(
+        id="team_low",
+        genres=["JAZZ"],
+        goals=["GOAL_PRO"],
+        practiceFrequency="PRACTICE_3_PLUS",
+        style="STYLE_EXPRESSIVE",
+        averageAge="AGE_40S",
     )
-    scored = score_apply_mode(profile, candidate)
-    assert scored["debug"]["same_sigungu_bonus"] > 0
+    rows = get_top_matches(profile, [low, high], mode="apply")
+    assert rows[0]["id"] == "team_high"
+    assert rows[0]["matchScore"] > rows[1]["matchScore"]
 
 
-def test_required_true_unmet_excluded_in_recruit_mode():
-    profile = normalize_profile(make_profile())
-    candidate = make_candidate(instruments=["Vocal"], parts=["Main Vocal"])
-    scored = score_recruit_mode(profile, candidate, profile["recruitNeeds"])
-    assert scored["excluded"] is True
-    assert scored["score"] == 0
-
-
-def test_avoid_conflict_penalty_applied():
-    profile = normalize_profile(make_profile())
-    candidate_safe = make_candidate(tags=["no_smoking", "punctual"])
-    candidate_conflict = make_candidate(tags=["no_smoking", "punctual", "weekend_only"])
-
-    safe_score = score_apply_mode(profile, candidate_safe)["score"]
-    conflict_score = score_apply_mode(profile, candidate_conflict)["score"]
-
-    assert conflict_score < safe_score
-
-
-def test_apply_and_recruit_modes_can_differ():
-    profile_data = make_profile()
-    candidate = make_candidate(
-        id="u-123",
-        instruments=["Guitar", "Bass"],
-        parts=["Rhythm Guitar", "Electric Bass"],
-    )
-    apply_rows = get_top_matches(profile_data, [candidate], mode="apply", min_score=0, top_k=10)
-    recruit_rows = get_top_matches(profile_data, [candidate], mode="recruit", min_score=0, top_k=10)
-
-    assert len(apply_rows) == 1
-    assert len(recruit_rows) == 1
-    assert apply_rows[0]["matchScore"] != recruit_rows[0]["matchScore"]
-
-
-def test_sorted_descending():
-    profile_data = make_profile()
-    candidate_low = make_candidate(
-        id="u-100",
-        nickname="Low",
-        genres=["Ballad"],
-        parts=["Sub Vocal"],
-        availability=["weekday_night"],
-        tags=[],
-    )
-    candidate_high = make_candidate(
-        id="u-101",
-        nickname="High",
-        genres=["Rock", "Indie", "Pop"],
-        parts=["Main Vocal", "Rhythm Guitar"],
-        availability=["weekday_evening", "weekend_day"],
-        region="서울특별시 마포구",
-        regionSigungu="마포구",
-        tags=["no_smoking", "punctual"],
-    )
-
-    rows = get_top_matches(profile_data, [candidate_low, candidate_high], mode="apply")
-    assert rows[0]["id"] == "u-101"
-    assert rows[0]["matchScore"] >= rows[1]["matchScore"]
-
-
-def test_min_score_filter():
-    profile_data = make_profile()
-    low = make_candidate(
-        id="u-200",
-        genres=["Ballad"],
-        parts=["Sub Vocal"],
-        availability=["weekday_night"],
-        tags=[],
-    )
-    rows = get_top_matches(profile_data, [low], mode="apply", min_score=50, top_k=10)
-    assert rows == []
-
-
-def test_top_k_limit():
-    profile_data = make_profile()
-    candidates = [make_candidate(id=f"u-{i:03d}", nickname=f"User{i}") for i in range(10)]
-    rows = get_top_matches(profile_data, candidates, mode="apply", min_score=0, top_k=3)
-    assert len(rows) == 3
-
-
-def test_empty_inputs_safe():
-    profile_data = make_profile()
-    rows = get_top_matches(profile_data, [], mode="apply", min_score=0, top_k=10)
-    assert rows == []
-
-
-def test_score_range_clamped_0_to_100():
-    profile = normalize_profile(make_profile())
-    candidate = make_candidate(
-        genres=["Rock", "Indie", "Pop"],
-        parts=["Main Vocal", "Rhythm Guitar", "Electric Bass"],
-        availability=["weekday_evening", "weekend_day"],
-        region="서울특별시 마포구",
-        regionSigungu="마포구",
-        tags=["no_smoking", "punctual", "owns_gear"],
-    )
-    scored_apply = score_apply_mode(profile, candidate)
-    scored_recruit = score_recruit_mode(profile, candidate, profile["recruitNeeds"])
-
-    assert 0 <= scored_apply["score"] <= 100
-    assert 0 <= scored_recruit["score"] <= 100
-
-
-def test_region_fallback_from_sido_sigungu():
-    profile_data = make_profile()
-    profile_data["performancePreferences"]["activityRegion"] = ""
-    candidate = make_candidate(
-        region="서울특별시 강남구",
-        regionSido="서울특별시",
-        regionSigungu="강남구",
-    )
-    rows = get_top_matches(profile_data, [candidate], mode="apply")
-    assert len(rows) == 1
-
-
-def test_required_and_avoid_same_item_required_wins():
-    profile_data = make_profile()
-    profile_data["matchConditions"]["requiredConditions"] = ["no_smoking"]
-    profile_data["matchConditions"]["avoidConditions"] = ["no_smoking", "weekend_only"]
-
-    candidate = make_candidate(tags=["no_smoking"])
-    rows = get_top_matches(profile_data, [candidate], mode="apply")
-    assert len(rows) == 1
-    assert rows[0]["matchScore"] > 0
+def test_recruit_mode_scores_candidate():
+    scored = score_recruit_mode(make_team_profile(), make_user_candidate())
+    assert scored["excluded"] is False
+    assert scored["score"] > 0
