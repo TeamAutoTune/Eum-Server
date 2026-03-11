@@ -21,3 +21,14 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class UserCountOut(BaseModel):
+    count: int
+
+
+class UserCountStatsOut(BaseModel):
+    total_users: int
+    seeded_test_users: int
+    heuristic_test_users: int
+    probable_real_signup_users: int

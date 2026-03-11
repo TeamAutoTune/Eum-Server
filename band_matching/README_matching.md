@@ -1,18 +1,21 @@
-# Band Matching Engine
+# band_matching
 
-밴드 팀원 매칭 앱용 설명 가능한 룰기반 매칭 엔진이다.  
-현재는 ML 학습데이터가 없으므로 룰기반으로 시작하고, 나중에 학습형으로 자연스럽게 확장할 수 있도록 설계했다.
+교체된 규칙 기반 밴드 매칭 엔진입니다.
 
----
+- 세션: 하드 필터
+- 장르: 25
+- 활동 목표: 20
+- 연습 빈도: 15
+- 연주 스타일: 15
+- 나이대: 10
+- 생활 스타일: 10
+- 지역: 5
 
-## 폴더 구조
+주요 인터페이스:
 
-```bash
-band_matching/
-├─ synthetic_data.py
-├─ match_engine.py
-├─ example_usage.py
-├─ README_matching.md
-└─ tests/
-   └─ test_match_engine.py
-```
+- `normalize_profile`
+- `hard_filter`
+- `score_apply_mode`
+- `score_recruit_mode`
+- `get_top_matches`
+

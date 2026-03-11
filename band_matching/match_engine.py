@@ -1,67 +1,200 @@
-# -*- coding: utf-8 -*-
-"""Explainable rule-based match engine for band member matching."""
+"""Rule-based matching engine for band/team matching.
+
+This module is intentionally self-contained so it can replace the legacy
+`band_matching` folder with minimal integration changes.
+"""
 
 from __future__ import annotations
 
-from feature_logger import log_match_features
-
-from typing import Any, Dict, Iterable, List, Tuple
-
-from hybrid_ranker import load_model, hybrid_score
-
-MODEL = load_model()
-
-CONFIG = {
-    "score_range": {"min": 0, "max": 100},
-    "apply_weights": {
-        "genre_overlap": 20,
-        "part_overlap": 10,
-        "style_match": 8,
-        "time_overlap": 10,
-        "practice_frequency": 6,
-        "activity_goal": 6,
-        "required_bonus": 8,
-        "avoid_penalty": 20,
-        "same_sigungu_bonus": 6,
-    },
-    "recruit_weights": {
-        "recruit_needs_coverage": 40,
-        "genre_overlap": 14,
-        "part_overlap": 8,
-        "style_match": 6,
-        "time_overlap": 8,
-        "practice_frequency": 6,
-        "activity_goal": 6,
-        "required_bonus": 6,
-        "avoid_penalty": 16,
-        "same_sigungu_bonus": 6,
-    },
-    "practice_frequency_matrix": {
-        "weekly_1": {"weekly_1": 1.0, "weekly_2": 0.7, "weekly_3_plus": 0.4},
-        "weekly_2": {"weekly_1": 0.7, "weekly_2": 1.0, "weekly_3_plus": 0.75},
-        "weekly_3_plus": {"weekly_1": 0.4, "weekly_2": 0.75, "weekly_3_plus": 1.0},
-    },
-    "goal_similarity": {
-        "hobby": {"hobby": 1.0, "busking": 0.5, "band": 0.5, "pro": 0.2},
-        "busking": {"hobby": 0.5, "busking": 1.0, "band": 0.7, "pro": 0.4},
-        "band": {"hobby": 0.5, "busking": 0.7, "band": 1.0, "pro": 0.6},
-        "pro": {"hobby": 0.2, "busking": 0.4, "band": 0.6, "pro": 1.0},
-    },
-    "required_missing_penalty_apply": 12,
-}
+from typing import Any, Iterable
 
 VALID_MODES = {"apply", "recruit"}
 
+WEIGHTS = {
+    "genre_overlap": 25,
+    "goal_match": 20,
+    "practice_similarity": 15,
+    "style_similarity": 15,
+    "age_similarity": 10,
+    "lifestyle_similarity": 10,
+    "region_match": 5,
+}
 
-def _ensure_dict(value: Any, field_name: str) -> dict:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError(f"{field_name} must be a dict")
-    return value
+REASON_LABELS = {
+    "session_match": "모집 세션이 맞아요",
+    "genre_overlap": "선호 장르가 잘 맞아요",
+    "goal_match": "활동 목표가 비슷해요",
+    "practice_similarity": "연습 빈도가 잘 맞아요",
+    "style_similarity": "연주 스타일이 잘 맞아요",
+    "age_similarity": "연령대 분위기가 비슷해요",
+    "lifestyle_similarity": "생활 스타일이 잘 맞아요",
+    "region_match": "활동 지역이 같아요",
+}
+
+INSTRUMENT_CODE_MAP = {
+    "vocal": "VOCAL",
+    "보컬": "VOCAL",
+    "guitar": "GUITAR",
+    "기타": "GUITAR",
+    "bass": "BASS",
+    "베이스": "BASS",
+    "drum": "DRUM",
+    "drums": "DRUM",
+    "드럼": "DRUM",
+    "keyboard": "KEYBOARD",
+    "키보드": "KEYBOARD",
+    "piano": "PIANO",
+    "피아노": "PIANO",
+    "violin": "VIOLIN",
+    "바이올린": "VIOLIN",
+    "saxophone": "SAXOPHONE",
+    "색소폰": "SAXOPHONE",
+    "trumpet": "TRUMPET",
+    "트럼펫": "TRUMPET",
+    "dj": "DJ",
+}
+
+GENRE_CODE_MAP = {
+    "rock": "ROCK",
+    "록": "ROCK",
+    "indie": "INDIE",
+    "인디": "INDIE",
+    "ballad": "BALLAD",
+    "발라드": "BALLAD",
+    "jazz": "JAZZ",
+    "재즈": "JAZZ",
+    "r&b": "RNB",
+    "rnb": "RNB",
+    "알앤비": "RNB",
+    "metal": "METAL",
+    "메탈": "METAL",
+    "pop": "POP",
+    "팝": "POP",
+    "hip-hop": "HIPHOP",
+    "hiphop": "HIPHOP",
+    "힙합": "HIPHOP",
+    "funk": "FUNK",
+    "펑크": "FUNK",
+    "electronic": "ELECTRONIC",
+    "일렉트로닉": "ELECTRONIC",
+}
+
+GOAL_CODE_MAP = {
+    "hobby": "GOAL_HOBBY",
+    "취미 합주": "GOAL_HOBBY",
+    "취미": "GOAL_HOBBY",
+    "busking": "GOAL_BUSKING_LIVE",
+    "live": "GOAL_BUSKING_LIVE",
+    "busking_live": "GOAL_BUSKING_LIVE",
+    "버스킹 / 라이브": "GOAL_BUSKING_LIVE",
+    "버스킹": "GOAL_BUSKING_LIVE",
+    "band": "GOAL_BAND_PROJECT",
+    "band_project": "GOAL_BAND_PROJECT",
+    "밴드 프로젝트": "GOAL_BAND_PROJECT",
+    "pro": "GOAL_PRO",
+    "프로 지향": "GOAL_PRO",
+}
+
+PRACTICE_CODE_MAP = {
+    "weekly_1": "PRACTICE_1",
+    "practice_1": "PRACTICE_1",
+    "주 1회": "PRACTICE_1",
+    "weekly_2": "PRACTICE_2",
+    "practice_2": "PRACTICE_2",
+    "주 2회": "PRACTICE_2",
+    "weekly_3_plus": "PRACTICE_3_PLUS",
+    "practice_3_plus": "PRACTICE_3_PLUS",
+    "주 3회 이상": "PRACTICE_3_PLUS",
+}
+
+STYLE_CODE_MAP = {
+    "precise": "STYLE_PRECISE",
+    "정확한 연주 중심": "STYLE_PRECISE",
+    "balanced": "STYLE_BALANCED",
+    "균형형": "STYLE_BALANCED",
+    "expressive": "STYLE_EXPRESSIVE",
+    "표현형": "STYLE_EXPRESSIVE",
+}
+
+AGE_CODE_MAP = {
+    "20대": "AGE_20S",
+    "age_20s": "AGE_20S",
+    "30대": "AGE_30S",
+    "age_30s": "AGE_30S",
+    "40대": "AGE_40S",
+    "age_40s": "AGE_40S",
+    "50대 이상": "AGE_50_PLUS",
+    "age_50_plus": "AGE_50_PLUS",
+}
+
+REGION_CODE_MAP = {
+    "seoul": "SEOUL",
+    "서울": "SEOUL",
+}
+
+DRINK_CODE_MAP = {
+    "drink_enjoy": "DRINK_ENJOY",
+    "즐김": "DRINK_ENJOY",
+    "drink_sometimes": "DRINK_SOMETIMES",
+    "가끔 참여": "DRINK_SOMETIMES",
+    "drink_depends": "DRINK_DEPENDS",
+    "상황에 따라": "DRINK_DEPENDS",
+    "drink_none": "DRINK_NONE",
+    "참여하지 않음": "DRINK_NONE",
+}
+
+SMOKING_CODE_MAP = {
+    "smoking": "SMOKING",
+    "흡연": "SMOKING",
+    "non_smoking": "NON_SMOKING",
+    "비흡연": "NON_SMOKING",
+    "smoking_irrelevant": "SMOKING_IRRELEVANT",
+    "상관없음": "SMOKING_IRRELEVANT",
+}
+
+SOCIAL_CODE_MAP = {
+    "social_active": "SOCIAL_ACTIVE",
+    "적극적": "SOCIAL_ACTIVE",
+    "social_normal": "SOCIAL_NORMAL",
+    "보통": "SOCIAL_NORMAL",
+    "social_minimal": "SOCIAL_MINIMAL",
+    "최소 참여": "SOCIAL_MINIMAL",
+    "social_none": "SOCIAL_NONE",
+    "선호하지 않음": "SOCIAL_NONE",
+}
+
+MEAL_CODE_MAP = {
+    "meal_like": "MEAL_LIKE",
+    "좋아함": "MEAL_LIKE",
+    "meal_sometimes": "MEAL_SOMETIMES",
+    "가끔 참여": "MEAL_SOMETIMES",
+    "meal_if_needed": "MEAL_IF_NEEDED",
+    "필요 시 참여": "MEAL_IF_NEEDED",
+    "meal_none": "MEAL_NONE",
+    "선호하지 않음": "MEAL_NONE",
+}
+
+PRACTICE_ORDER = {
+    "PRACTICE_1": 1,
+    "PRACTICE_2": 2,
+    "PRACTICE_3_PLUS": 3,
+}
+
+STYLE_ORDER = {
+    "STYLE_PRECISE": 1,
+    "STYLE_BALANCED": 2,
+    "STYLE_EXPRESSIVE": 3,
+}
+
+AGE_ORDER = {
+    "AGE_20S": 1,
+    "AGE_30S": 2,
+    "AGE_40S": 3,
+    "AGE_50_PLUS": 4,
+}
 
 
-def _safe_list(value: Any) -> list:
+def _safe_list(value: Any) -> list[Any]:
     if value is None:
         return []
     if isinstance(value, list):
@@ -69,473 +202,358 @@ def _safe_list(value: Any) -> list:
     return [value] if value not in (None, "") else []
 
 
-def _normalize_text(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
+def _safe_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
-def _unique_preserve(items: Iterable[Any]) -> list:
-    seen = set()
-    result = []
-    for item in items:
-        if item in seen:
-            continue
-        seen.add(item)
-        result.append(item)
-    return result
+def _safe_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
-def _setify(items: Any) -> set[str]:
+def _normalize_token(value: Any) -> str:
+    text = _safe_text(value)
+    if not text:
+        return ""
+    return text.replace("-", "_").replace(" ", "_").upper()
+
+
+def _map_code(value: Any, alias_map: dict[str, str]) -> str:
+    text = _safe_text(value)
+    if not text:
+        return ""
+
+    direct = _normalize_token(text)
+    if direct in alias_map.values():
+        return direct
+
+    lowered = text.lower()
+    if lowered in alias_map:
+        return alias_map[lowered]
+
+    return direct
+
+
+def _map_many(values: Any, alias_map: dict[str, str]) -> list[str]:
+    mapped: list[str] = []
+    seen: set[str] = set()
+    for item in _safe_list(values):
+        code = _map_code(item, alias_map)
+        if code and code not in seen:
+            seen.add(code)
+            mapped.append(code)
+    return mapped
+
+
+def _derive_goals(profile_data: dict[str, Any]) -> list[str]:
+    activity_goal = profile_data.get("activityGoal")
+    if isinstance(activity_goal, dict) and activity_goal.get("activityGoals") is not None:
+        return _map_many(activity_goal.get("activityGoals"), GOAL_CODE_MAP)
+    if profile_data.get("goals") is not None:
+        return _map_many(profile_data.get("goals"), GOAL_CODE_MAP)
+    if activity_goal is not None:
+        return _map_many(activity_goal, GOAL_CODE_MAP)
+    return []
+
+
+def _derive_region(profile_data: dict[str, Any]) -> str:
+    if profile_data.get("region"):
+        return _map_code(profile_data.get("region"), REGION_CODE_MAP)
+
+    perf = _safe_dict(profile_data.get("performancePreferences"))
+    if perf.get("activityRegionSido"):
+        return _map_code(perf.get("activityRegionSido"), REGION_CODE_MAP)
+    if perf.get("activityRegion"):
+        region_text = _safe_text(perf.get("activityRegion"))
+        if region_text:
+            return _map_code(region_text.split()[0], REGION_CODE_MAP)
+
+    return ""
+
+
+def _derive_practice(profile_data: dict[str, Any]) -> str:
+    if profile_data.get("practiceFrequency"):
+        return _map_code(profile_data.get("practiceFrequency"), PRACTICE_CODE_MAP)
+
+    perf = _safe_dict(profile_data.get("performancePreferences"))
+    return _map_code(perf.get("practiceFrequency"), PRACTICE_CODE_MAP)
+
+
+def _derive_style(profile_data: dict[str, Any]) -> str:
+    if profile_data.get("style"):
+        return _map_code(profile_data.get("style"), STYLE_CODE_MAP)
+
+    perf = _safe_dict(profile_data.get("performancePreferences"))
+    return _map_code(perf.get("performanceStyle"), STYLE_CODE_MAP)
+
+
+def _derive_age(profile_data: dict[str, Any]) -> str:
+    if profile_data.get("averageAge"):
+        return _map_code(profile_data.get("averageAge"), AGE_CODE_MAP)
+    if profile_data.get("ageGroup"):
+        return _map_code(profile_data.get("ageGroup"), AGE_CODE_MAP)
+    return ""
+
+
+def _derive_lifestyle(profile_data: dict[str, Any]) -> dict[str, str]:
+    lifestyle = _safe_dict(profile_data.get("lifestyle"))
     return {
-        _normalize_text(item)
-        for item in _safe_list(items)
-        if _normalize_text(item)
+        "drink": _map_code(lifestyle.get("drink"), DRINK_CODE_MAP),
+        "smoking": _map_code(lifestyle.get("smoking"), SMOKING_CODE_MAP),
+        "social": _map_code(lifestyle.get("social"), SOCIAL_CODE_MAP),
+        "meal": _map_code(lifestyle.get("meal"), MEAL_CODE_MAP),
     }
 
 
-def _clamp_score(value: float) -> int:
-    return max(CONFIG["score_range"]["min"], min(CONFIG["score_range"]["max"], int(round(value))))
+def _derive_recruiting_sessions(profile_data: dict[str, Any]) -> list[str]:
+    sessions = _map_many(profile_data.get("recruitingSessions"), INSTRUMENT_CODE_MAP)
+    if sessions:
+        return sessions
 
-
-def _overlap_ratio(left: Iterable[str], right: Iterable[str]) -> float:
-    set_left = _setify(list(left))
-    set_right = _setify(list(right))
-    if not set_left or not set_right:
-        return 0.0
-    overlap = len(set_left & set_right)
-    base = max(len(set_left), len(set_right))
-    return overlap / base if base else 0.0
-
-
-def _practice_similarity(profile_freq: str, candidate_freq: str) -> float:
-    return CONFIG["practice_frequency_matrix"].get(profile_freq, {}).get(candidate_freq, 0.0)
-
-
-def _goal_similarity(profile_goals: Iterable[str], candidate_goal: str) -> float:
-    candidate_goal = _normalize_text(candidate_goal)
-    goals = _setify(list(profile_goals))
-    if not goals or not candidate_goal:
-        return 0.0
-    return max(
-        CONFIG["goal_similarity"].get(goal, {}).get(candidate_goal, 0.0)
-        for goal in goals
+    recruit_needs = _safe_list(profile_data.get("recruitNeeds"))
+    return _map_many(
+        [item.get("instrument") for item in recruit_needs if isinstance(item, dict)],
+        INSTRUMENT_CODE_MAP,
     )
 
 
-def _resolve_region(profile: dict) -> str:
-    region = _normalize_text(profile["performancePreferences"].get("activityRegion"))
-    if region:
-        return " ".join(region.split())
-    sido = _normalize_text(profile["performancePreferences"].get("activityRegionSido"))
-    sigungu = _normalize_text(profile["performancePreferences"].get("activityRegionSigungu"))
-    return " ".join(f"{sido} {sigungu}".strip().split())
-
-
-def _extract_profile_region_sido(profile: dict) -> str:
-    sido = _normalize_text(profile["performancePreferences"].get("activityRegionSido"))
-    if sido:
-        return sido
-    full_region = _resolve_region(profile)
-    if not full_region:
-        return ""
-    return full_region.split()[0]
-
-
-def _extract_profile_region_sigungu(profile: dict) -> str:
-    sigungu = _normalize_text(profile["performancePreferences"].get("activityRegionSigungu"))
-    if sigungu:
-        return sigungu
-    full_region = _resolve_region(profile)
-    parts = full_region.split()
-    return parts[1] if len(parts) >= 2 else ""
-
-
-def _build_required_avoid_sets(profile: dict) -> tuple[set[str], set[str]]:
-    raw_required = _setify(profile["matchConditions"].get("requiredConditions"))
-    raw_avoid = _setify(profile["matchConditions"].get("avoidConditions"))
-    return raw_required, raw_avoid - raw_required
-
-
-def _get_same_sigungu_bonus(profile: dict, candidate: dict, bonus: int) -> tuple[float, str]:
-    profile_sigungu = _extract_profile_region_sigungu(profile)
-    candidate_sigungu = _normalize_text(candidate.get("regionSigungu"))
-    if profile_sigungu and candidate_sigungu and profile_sigungu == candidate_sigungu:
-        return float(bonus), f"같은 시군구 활동권 / Same district: {profile_sigungu}"
-    return 0.0, ""
-
-
-def normalize_profile(profile_data: dict) -> dict:
-    """Normalize raw profile data into stable internal structure."""
+def normalize_profile(profile_data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(profile_data, dict):
         raise ValueError("profile_data must be a dict")
 
-    performance_preferences = _ensure_dict(
-        profile_data.get("performancePreferences"),
-        "performancePreferences",
-    )
-    activity_goal = _ensure_dict(profile_data.get("activityGoal"), "activityGoal")
-    match_conditions = _ensure_dict(profile_data.get("matchConditions"), "matchConditions")
-
-    recruit_needs_raw = _safe_list(profile_data.get("recruitNeeds"))
-    recruit_needs: list[dict] = []
-    for item in recruit_needs_raw:
-        if not isinstance(item, dict):
-            continue
-        recruit_needs.append(
-            {
-                "instrument": _normalize_text(item.get("instrument")),
-                "part": _normalize_text(item.get("part")),
-                "count": int(item.get("count", 1) or 1),
-                "required": bool(item.get("required", False)),
-            }
-        )
+    perf = _safe_dict(profile_data.get("performancePreferences"))
 
     return {
-        "playableInstruments": _unique_preserve(
-            [_normalize_text(x) for x in _safe_list(profile_data.get("playableInstruments")) if _normalize_text(x)]
+        "id": _safe_text(profile_data.get("id") or profile_data.get("teamId") or profile_data.get("userId")),
+        "nickname": _safe_text(profile_data.get("nickname") or profile_data.get("teamName") or profile_data.get("name")),
+        "type": _safe_text(profile_data.get("type") or ("TEAM" if profile_data.get("recruitingSessions") else "USER")),
+        "instruments": _map_many(
+            profile_data.get("playableInstruments") or profile_data.get("instruments"),
+            INSTRUMENT_CODE_MAP,
         ),
-        "primaryParts": _unique_preserve(
-            [_normalize_text(x) for x in _safe_list(profile_data.get("primaryParts")) if _normalize_text(x)]
+        "parts": _safe_list(profile_data.get("primaryParts") or profile_data.get("parts")),
+        "recruitingSessions": _derive_recruiting_sessions(profile_data),
+        "genres": _map_many(
+            profile_data.get("preferredGenres") or profile_data.get("genres"),
+            GENRE_CODE_MAP,
         ),
-        "preferredGenres": _unique_preserve(
-            [_normalize_text(x) for x in _safe_list(profile_data.get("preferredGenres")) if _normalize_text(x)]
+        "goals": _derive_goals(profile_data),
+        "practiceFrequency": _derive_practice(profile_data),
+        "style": _derive_style(profile_data),
+        "region": _derive_region(profile_data),
+        "ageGroup": _derive_age(profile_data),
+        "lifestyle": _derive_lifestyle(profile_data),
+        "availableTimes": _safe_list(
+            profile_data.get("availableTimes")
+            or perf.get("availableTimeSlots")
+            or profile_data.get("availability")
         ),
-        "lifeSongs": _unique_preserve(
-            [_normalize_text(x) for x in _safe_list(profile_data.get("lifeSongs")) if _normalize_text(x)]
-        ),
-        "favoriteArtists": _unique_preserve(
-            [_normalize_text(x) for x in _safe_list(profile_data.get("favoriteArtists")) if _normalize_text(x)]
-        ),
-        "performancePreferences": {
-            "performanceStyle": _normalize_text(performance_preferences.get("performanceStyle")),
-            "activityRegion": _normalize_text(performance_preferences.get("activityRegion")),
-            "activityRegionSido": _normalize_text(performance_preferences.get("activityRegionSido")),
-            "activityRegionSigungu": _normalize_text(performance_preferences.get("activityRegionSigungu")),
-            "availableTimeSlots": _unique_preserve(
-                [_normalize_text(x) for x in _safe_list(performance_preferences.get("availableTimeSlots")) if _normalize_text(x)]
-            ),
-            "practiceFrequency": _normalize_text(performance_preferences.get("practiceFrequency")),
-        },
-        "activityGoal": {
-            "activityGoals": _unique_preserve(
-                [_normalize_text(x) for x in _safe_list(activity_goal.get("activityGoals")) if _normalize_text(x)]
-            )
-        },
-        "matchConditions": {
-            "requiredConditions": _unique_preserve(
-                [_normalize_text(x) for x in _safe_list(match_conditions.get("requiredConditions")) if _normalize_text(x)]
-            ),
-            "avoidConditions": _unique_preserve(
-                [_normalize_text(x) for x in _safe_list(match_conditions.get("avoidConditions")) if _normalize_text(x)]
-            ),
-        },
-        "recruitNeeds": recruit_needs,
+        "raw": profile_data,
     }
 
 
-def hard_filter(profile: dict, candidate: dict) -> Tuple[bool, str]:
-    """Apply hard filters: instrument overlap + regionSido exact match."""
-    profile_instruments = _setify(profile.get("playableInstruments"))
-    candidate_instruments = _setify(candidate.get("instruments"))
-    if not (profile_instruments & candidate_instruments):
-        return False, "악기 하드필터 불일치"
-
-    profile_sido = _extract_profile_region_sido(profile)
-    candidate_sido = _normalize_text(candidate.get("regionSido"))
-    if profile_sido and candidate_sido and profile_sido != candidate_sido:
-        return False, "활동지역(시/도) 하드필터 불일치"
-
-    return True, "통과"
-
-
-def _required_and_avoid_adjustment(
-    required_conditions: set[str],
-    avoid_conditions: set[str],
-    candidate_tags: set[str],
-    max_required_bonus: int,
-    max_avoid_penalty: int,
-    reasons: list[str],
-) -> tuple[float, float]:
-    required_bonus = 0.0
-    avoid_penalty = 0.0
-
-    if required_conditions:
-        matched_required = required_conditions & candidate_tags
-        ratio = len(matched_required) / len(required_conditions)
-        required_bonus = ratio * max_required_bonus
-        if matched_required:
-            reasons.append(
-                f"필수 조건 일부 충족 / Required matched: {', '.join(sorted(matched_required))}"
-            )
-
-    if avoid_conditions:
-        conflicts = avoid_conditions & candidate_tags
-        if conflicts:
-            ratio = len(conflicts) / len(avoid_conditions)
-            avoid_penalty = ratio * max_avoid_penalty
-            reasons.append(
-                f"비선호 조건 충돌 / Avoid conflicts: {', '.join(sorted(conflicts))}"
-            )
-
-    return required_bonus, avoid_penalty
-
-
-def score_apply_mode(profile: dict, candidate: dict) -> dict:
-    """Score candidate for apply mode."""
-    weights = CONFIG["apply_weights"]
-    reasons: list[str] = []
-    debug: dict[str, float] = {}
-
-    genre_ratio = _overlap_ratio(profile["preferredGenres"], candidate.get("genres"))
-    genre_score = genre_ratio * weights["genre_overlap"]
-    debug["genre_overlap"] = genre_score
-    if genre_ratio > 0:
-        shared = sorted(_setify(profile["preferredGenres"]) & _setify(candidate.get("genres")))
-        reasons.append(f"선호 장르 겹침 / Shared genres: {', '.join(shared)}")
-
-    part_ratio = _overlap_ratio(profile["primaryParts"], candidate.get("parts"))
-    part_score = part_ratio * weights["part_overlap"]
-    debug["part_overlap"] = part_score
-    if part_ratio > 0:
-        shared = sorted(_setify(profile["primaryParts"]) & _setify(candidate.get("parts")))
-        reasons.append(f"주요 파트 연관 / Shared parts: {', '.join(shared)}")
-
-    style = profile["performancePreferences"]["performanceStyle"]
-    style_score = weights["style_match"] if style and style == _normalize_text(candidate.get("style")) else 0.0
-    debug["style_match"] = style_score
-    if style_score > 0:
-        reasons.append(f"연주 성향 일치 / Same style: {style}")
-
-    time_ratio = _overlap_ratio(
-        profile["performancePreferences"]["availableTimeSlots"],
-        candidate.get("availability"),
-    )
-    time_score = time_ratio * weights["time_overlap"]
-    debug["time_overlap"] = time_score
-    if time_ratio > 0:
-        shared = sorted(
-            _setify(profile["performancePreferences"]["availableTimeSlots"])
-            & _setify(candidate.get("availability"))
-        )
-        reasons.append(f"합주 시간대 겹침 / Shared slots: {', '.join(shared)}")
-
-    practice_ratio = _practice_similarity(
-        profile["performancePreferences"]["practiceFrequency"],
-        _normalize_text(candidate.get("practiceFrequency")),
-    )
-    practice_score = practice_ratio * weights["practice_frequency"]
-    debug["practice_frequency"] = practice_score
-    if practice_ratio > 0:
-        reasons.append("연습 빈도 궁합 양호 / Practice frequency compatible")
-
-    goal_ratio = _goal_similarity(
-        profile["activityGoal"]["activityGoals"],
-        _normalize_text(candidate.get("activityGoal")),
-    )
-    goal_score = goal_ratio * weights["activity_goal"]
-    debug["activity_goal"] = goal_score
-    if goal_ratio > 0:
-        reasons.append("활동 목표 궁합 / Activity goal aligned")
-
-    same_sigungu_bonus, sigungu_reason = _get_same_sigungu_bonus(
-        profile, candidate, weights["same_sigungu_bonus"]
-    )
-    debug["same_sigungu_bonus"] = same_sigungu_bonus
-    if same_sigungu_bonus > 0:
-        reasons.append(sigungu_reason)
-
-    required_conditions, avoid_conditions = _build_required_avoid_sets(profile)
-    candidate_tags = _setify(candidate.get("tags"))
-
-    required_bonus, avoid_penalty = _required_and_avoid_adjustment(
-        required_conditions=required_conditions,
-        avoid_conditions=avoid_conditions,
-        candidate_tags=candidate_tags,
-        max_required_bonus=weights["required_bonus"],
-        max_avoid_penalty=weights["avoid_penalty"],
-        reasons=reasons,
-    )
-    debug["required_bonus"] = required_bonus
-    debug["avoid_penalty"] = -avoid_penalty
-
-    missing_required = required_conditions - candidate_tags
-    if missing_required:
-        missing_penalty = CONFIG["required_missing_penalty_apply"]
-        reasons.append(
-            f"필수 조건 일부 미충족 / Missing required: {', '.join(sorted(missing_required))}"
-        )
-    else:
-        missing_penalty = 0.0
-    debug["required_missing_penalty"] = -missing_penalty
-
-    raw_score = (
-        genre_score
-        + part_score
-        + style_score
-        + time_score
-        + practice_score
-        + goal_score
-        + same_sigungu_bonus
-        + required_bonus
-        - avoid_penalty
-        - missing_penalty
-    )
-
-    return {
-        "score": _clamp_score(raw_score),
-        "reasons": reasons,
-        "debug": debug,
-    }
-
-
-def _coverage_for_need(need: dict, candidate: dict) -> float:
-    instrument = _normalize_text(need.get("instrument"))
-    part = _normalize_text(need.get("part"))
-
-    candidate_instruments = _setify(candidate.get("instruments"))
-    candidate_parts = _setify(candidate.get("parts"))
-
-    if instrument and instrument not in candidate_instruments:
+def _overlap_ratio(left: Iterable[str], right: Iterable[str]) -> float:
+    left_set = {item for item in left if item}
+    right_set = {item for item in right if item}
+    if not left_set or not right_set:
         return 0.0
-
-    if part:
-        return 1.0 if part in candidate_parts else 0.0
-
-    return 1.0 if instrument else 0.0
+    return len(left_set & right_set) / max(len(left_set), len(right_set))
 
 
-def score_recruit_mode(profile: dict, candidate: dict, recruit_needs: list[dict]) -> dict:
-    """Score candidate for recruit mode."""
-    weights = CONFIG["recruit_weights"]
-    reasons: list[str] = []
-    debug: dict[str, float] = {}
+def _goal_match(left: Iterable[str], right: Iterable[str]) -> float:
+    left_set = {item for item in left if item}
+    right_set = {item for item in right if item}
+    if not left_set or not right_set:
+        return 0.0
+    return 1.0 if left_set & right_set else 0.0
 
-    normalized_needs = [need for need in recruit_needs if isinstance(need, dict)]
-    required_needs = [need for need in normalized_needs if bool(need.get("required"))]
 
-    for need in required_needs:
-        if _coverage_for_need(need, candidate) <= 0:
-            return {
-                "score": 0,
-                "reasons": [
-                    f"필수 구인 조건 미충족 / Missing required recruit need: {need.get('instrument')} {need.get('part', '')}".strip()
-                ],
-                "debug": {"recruit_needs_coverage": 0.0},
-                "excluded": True,
-            }
+def _distance_score(left: str, right: str, order_map: dict[str, int]) -> float:
+    if not left or not right or left not in order_map or right not in order_map:
+        return 0.0
+    diff = abs(order_map[left] - order_map[right])
+    if diff == 0:
+        return 1.0
+    if diff == 1:
+        return 0.5
+    return 0.0
 
-    if normalized_needs:
-        coverage_ratio = sum(_coverage_for_need(need, candidate) for need in normalized_needs) / len(normalized_needs)
-    else:
-        coverage_ratio = 0.0
 
-    recruit_score = coverage_ratio * weights["recruit_needs_coverage"]
-    debug["recruit_needs_coverage"] = recruit_score
-    if coverage_ratio > 0:
-        reasons.append("구인 니즈 충족도 높음 / Strong recruit-needs coverage")
+def _region_score(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    return 1.0 if left == right else 0.0
 
-    genre_ratio = _overlap_ratio(profile["preferredGenres"], candidate.get("genres"))
-    genre_score = genre_ratio * weights["genre_overlap"]
-    debug["genre_overlap"] = genre_score
-    if genre_ratio > 0:
-        shared = sorted(_setify(profile["preferredGenres"]) & _setify(candidate.get("genres")))
-        reasons.append(f"장르 궁합 / Shared genres: {', '.join(shared)}")
 
-    recruit_parts = [need.get("part", "") for need in normalized_needs if need.get("part")]
-    part_ratio = _overlap_ratio(recruit_parts, candidate.get("parts"))
-    part_score = part_ratio * weights["part_overlap"]
-    debug["part_overlap"] = part_score
-    if part_ratio > 0:
-        shared = sorted(_setify(recruit_parts) & _setify(candidate.get("parts")))
-        reasons.append(f"구인 파트 부합 / Matching recruit parts: {', '.join(shared)}")
+def _lifestyle_score(left: dict[str, str], right: dict[str, str]) -> float:
+    scores: list[float] = []
+    for key in ("drink", "smoking", "social", "meal"):
+        left_value = _safe_text(left.get(key))
+        right_value = _safe_text(right.get(key))
+        if not left_value or not right_value:
+            continue
+        scores.append(1.0 if left_value == right_value else 0.5)
+    if not scores:
+        return 0.0
+    return sum(scores) / len(scores)
 
-    style = profile["performancePreferences"]["performanceStyle"]
-    style_score = weights["style_match"] if style and style == _normalize_text(candidate.get("style")) else 0.0
-    debug["style_match"] = style_score
-    if style_score > 0:
-        reasons.append(f"연주 성향 일치 / Same style: {style}")
 
-    time_ratio = _overlap_ratio(
-        profile["performancePreferences"]["availableTimeSlots"],
-        candidate.get("availability"),
-    )
-    time_score = time_ratio * weights["time_overlap"]
-    debug["time_overlap"] = time_score
-    if time_ratio > 0:
-        shared = sorted(
-            _setify(profile["performancePreferences"]["availableTimeSlots"])
-            & _setify(candidate.get("availability"))
+def _session_overlap(left: Iterable[str], right: Iterable[str]) -> bool:
+    left_set = {item for item in left if item}
+    right_set = {item for item in right if item}
+    return bool(left_set and right_set and left_set & right_set)
+
+
+def hard_filter(profile: dict[str, Any], candidate: dict[str, Any], mode: str = "apply") -> tuple[bool, str]:
+    if mode not in VALID_MODES:
+        raise ValueError(f"mode must be one of {sorted(VALID_MODES)}")
+
+    normalized_profile = normalize_profile(profile)
+    normalized_candidate = normalize_profile(candidate)
+
+    if mode == "apply":
+        passed = _session_overlap(
+            normalized_profile.get("instruments", []),
+            normalized_candidate.get("recruitingSessions", []),
         )
-        reasons.append(f"가능 시간대 겹침 / Shared slots: {', '.join(shared)}")
+    else:
+        passed = _session_overlap(
+            normalized_profile.get("recruitingSessions", []),
+            normalized_candidate.get("instruments", []),
+        )
 
-    practice_ratio = _practice_similarity(
-        profile["performancePreferences"]["practiceFrequency"],
-        _normalize_text(candidate.get("practiceFrequency")),
-    )
-    practice_score = practice_ratio * weights["practice_frequency"]
-    debug["practice_frequency"] = practice_score
-    if practice_ratio > 0:
-        reasons.append("연습 빈도 부합 / Practice frequency compatible")
+    return (True, "session_match") if passed else (False, "session_mismatch")
 
-    goal_ratio = _goal_similarity(
-        profile["activityGoal"]["activityGoals"],
-        _normalize_text(candidate.get("activityGoal")),
-    )
-    goal_score = goal_ratio * weights["activity_goal"]
-    debug["activity_goal"] = goal_score
-    if goal_ratio > 0:
-        reasons.append("활동 목표 부합 / Activity goal aligned")
 
-    same_sigungu_bonus, sigungu_reason = _get_same_sigungu_bonus(
-        profile, candidate, weights["same_sigungu_bonus"]
-    )
-    debug["same_sigungu_bonus"] = same_sigungu_bonus
-    if same_sigungu_bonus > 0:
-        reasons.append(sigungu_reason)
+def _build_breakdown(profile: dict[str, Any], candidate: dict[str, Any]) -> dict[str, float]:
+    return {
+        "genre_overlap": _overlap_ratio(profile.get("genres", []), candidate.get("genres", [])),
+        "goal_match": _goal_match(profile.get("goals", []), candidate.get("goals", [])),
+        "practice_similarity": _distance_score(
+            _safe_text(profile.get("practiceFrequency")),
+            _safe_text(candidate.get("practiceFrequency")),
+            PRACTICE_ORDER,
+        ),
+        "style_similarity": _distance_score(
+            _safe_text(profile.get("style")),
+            _safe_text(candidate.get("style")),
+            STYLE_ORDER,
+        ),
+        "age_similarity": _distance_score(
+            _safe_text(profile.get("ageGroup")),
+            _safe_text(candidate.get("ageGroup")),
+            AGE_ORDER,
+        ),
+        "lifestyle_similarity": _lifestyle_score(
+            _safe_dict(profile.get("lifestyle")),
+            _safe_dict(candidate.get("lifestyle")),
+        ),
+        "region_match": _region_score(
+            _safe_text(profile.get("region")),
+            _safe_text(candidate.get("region")),
+        ),
+    }
 
-    required_conditions, avoid_conditions = _build_required_avoid_sets(profile)
-    candidate_tags = _setify(candidate.get("tags"))
-    required_bonus, avoid_penalty = _required_and_avoid_adjustment(
-        required_conditions=required_conditions,
-        avoid_conditions=avoid_conditions,
-        candidate_tags=candidate_tags,
-        max_required_bonus=weights["required_bonus"],
-        max_avoid_penalty=weights["avoid_penalty"],
-        reasons=reasons,
-    )
-    debug["required_bonus"] = required_bonus
-    debug["avoid_penalty"] = -avoid_penalty
 
-    raw_score = (
-        recruit_score
-        + genre_score
-        + part_score
-        + style_score
-        + time_score
-        + practice_score
-        + goal_score
-        + same_sigungu_bonus
-        + required_bonus
-        - avoid_penalty
+def _compose_reasons(breakdown: dict[str, float], include_session_reason: bool, limit: int = 3) -> list[str]:
+    weighted = sorted(
+        ((key, breakdown.get(key, 0.0) * WEIGHTS[key]) for key in WEIGHTS if breakdown.get(key, 0.0) > 0),
+        key=lambda item: item[1],
+        reverse=True,
     )
+
+    reasons: list[str] = []
+    if include_session_reason:
+        reasons.append(REASON_LABELS["session_match"])
+
+    for key, _ in weighted:
+        label = REASON_LABELS[key]
+        if label not in reasons:
+            reasons.append(label)
+        if len(reasons) >= limit:
+            break
+
+    return reasons or ["기본 조건이 맞아요"]
+
+
+def _score_breakdown(breakdown: dict[str, float]) -> tuple[int, dict[str, float]]:
+    weighted_debug: dict[str, float] = {}
+    raw_score = 0.0
+    for key, weight in WEIGHTS.items():
+        contribution = round(breakdown.get(key, 0.0) * weight, 4)
+        weighted_debug[key] = contribution
+        raw_score += contribution
+    final_score = max(0, min(100, int(round(raw_score))))
+    weighted_debug["raw_score"] = round(raw_score, 4)
+    weighted_debug["final_score"] = float(final_score)
+    return final_score, weighted_debug
+
+
+def _score_mode(profile: dict[str, Any], candidate: dict[str, Any], mode: str) -> dict[str, Any]:
+    normalized_profile = normalize_profile(profile)
+    normalized_candidate = normalize_profile(candidate)
+
+    passed, _ = hard_filter(normalized_profile, normalized_candidate, mode=mode)
+    if not passed:
+        return {
+            "score": 0,
+            "reasons": ["모집 세션이 맞지 않아요"],
+            "debug": {"excluded_by": "session_mismatch", "final_score": 0.0},
+            "excluded": True,
+        }
+
+    breakdown = _build_breakdown(normalized_profile, normalized_candidate)
+    final_score, weighted_debug = _score_breakdown(breakdown)
+    reasons = _compose_reasons(breakdown, include_session_reason=True)
 
     return {
-        "score": _clamp_score(raw_score),
+        "score": final_score,
         "reasons": reasons,
-        "debug": debug,
+        "debug": weighted_debug,
         "excluded": False,
     }
 
 
+def score_apply_mode(profile: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    return _score_mode(profile, candidate, mode="apply")
+
+
+def score_recruit_mode(profile: dict[str, Any], candidate: dict[str, Any], recruit_needs: list[dict] | None = None) -> dict[str, Any]:
+    del recruit_needs
+    return _score_mode(profile, candidate, mode="recruit")
+
+
+def _extract_apply_features(profile: dict[str, Any], candidate: dict[str, Any]) -> dict[str, float]:
+    normalized_profile = normalize_profile(profile)
+    normalized_candidate = normalize_profile(candidate)
+    breakdown = _build_breakdown(normalized_profile, normalized_candidate)
+    return {
+        "session_overlap": 1.0 if _session_overlap(normalized_profile.get("instruments", []), normalized_candidate.get("recruitingSessions", [])) else 0.0,
+        **breakdown,
+    }
+
+
+def _extract_recruit_features(profile: dict[str, Any], candidate: dict[str, Any], recruit_needs: list[dict] | None = None) -> dict[str, float]:
+    del recruit_needs
+    normalized_profile = normalize_profile(profile)
+    normalized_candidate = normalize_profile(candidate)
+    breakdown = _build_breakdown(normalized_profile, normalized_candidate)
+    return {
+        "session_overlap": 1.0 if _session_overlap(normalized_profile.get("recruitingSessions", []), normalized_candidate.get("instruments", [])) else 0.0,
+        **breakdown,
+    }
+
+
 def get_top_matches(
-    profile_data: dict,
-    candidates: list[dict],
+    profile_data: dict[str, Any],
+    candidates: list[dict[str, Any]],
     mode: str = "apply",
     min_score: int = 0,
     top_k: int = 20,
     viewer_id: str = "anonymous",
     enable_feature_logging: bool = False,
-) -> list[dict]:
-    """Return ranked match results."""
+) -> list[dict[str, Any]]:
+    del viewer_id, enable_feature_logging
+
     if mode not in VALID_MODES:
         raise ValueError(f"mode must be one of {sorted(VALID_MODES)}")
     if not isinstance(candidates, list):
@@ -545,174 +563,40 @@ def get_top_matches(
     if top_k < 0:
         raise ValueError("top_k must be >= 0")
 
-    profile = normalize_profile(profile_data)
-    results: list[dict] = []
+    normalized_profile = normalize_profile(profile_data)
+    results: list[dict[str, Any]] = []
 
     for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
 
-        passed, _ = hard_filter(profile, candidate)
-        if not passed:
+        normalized_candidate = normalize_profile(candidate)
+        if mode == "apply":
+            scored = score_apply_mode(normalized_profile, normalized_candidate)
+        else:
+            scored = score_recruit_mode(normalized_profile, normalized_candidate, normalized_profile.get("raw", {}).get("recruitNeeds", []))
+
+        if scored.get("excluded"):
             continue
 
-        if mode == "apply":
-          scored = score_apply_mode(profile, candidate)
-          if enable_feature_logging:
-              features = _extract_apply_features(profile, candidate)
-          else:
-              features = _extract_apply_features(profile, candidate)
-
-        else:
-            scored = score_recruit_mode(profile, candidate, profile.get("recruitNeeds", []))
-            if scored.get("excluded"):
-                continue
-            if enable_feature_logging:
-                features = _extract_recruit_features(
-                    profile,
-                    candidate,
-                    profile.get("recruitNeeds", []),
-                )
-            else:
-                features = _extract_recruit_features(
-                    profile,
-                    candidate,
-                    profile.get("recruitNeeds", []),
-                )
-
-        rule_score = _clamp_score(scored.get("score", 0))
-
-        final_score = hybrid_score(
-            rule_score=rule_score,
-            features=features,
-            model=MODEL,
-        )
-
-        score = _clamp_score(final_score)
-
+        score = int(scored.get("score", 0))
         if score < min_score:
             continue
 
-        reasons = list(scored.get("reasons", [])) or ["기본 조건 일치 / Basic requirements matched"]
-
-        if enable_feature_logging:
-            if mode == "apply":
-                features = _extract_apply_features(profile, candidate)
-            else:
-                features = _extract_recruit_features(
-                    profile,
-                    candidate,
-                    profile.get("recruitNeeds", []),
-                )
-
-            log_match_features(
-                viewer_id=viewer_id,
-                candidate_id=_normalize_text(candidate.get("id")),
-                mode=mode,
-                features=features,
-                rule_score=score,
-                extra={
-                    "nickname": _normalize_text(candidate.get("nickname")) or "Unknown","final_score": score,
-                },
-            )        
         debug = dict(scored.get("debug", {}))
-        debug["rule_score"] = rule_score
-        debug["final_score"] = score
+        debug["rule_score"] = float(score)
+        debug["final_score"] = float(score)
+
         results.append(
             {
-                "id": _normalize_text(candidate.get("id")),
-                "nickname": _normalize_text(candidate.get("nickname")) or "Unknown",
+                "id": normalized_candidate.get("id") or _safe_text(candidate.get("id")),
+                "nickname": normalized_candidate.get("nickname") or _safe_text(candidate.get("nickname")) or "Unknown",
                 "matchScore": score,
-                "reasons": reasons,
+                "reasons": list(scored.get("reasons", [])),
                 "debug": debug,
             }
         )
 
-    results.sort(key=lambda item: (-item["matchScore"], item["id"]))
+    results.sort(key=lambda item: (-int(item["matchScore"]), item["id"]))
     return results[:top_k]
 
-def _safe_ratio(numerator: int, denominator: int) -> float:
-    """Return safe ratio."""
-    if denominator <= 0:
-        return 0.0
-    return numerator / denominator
-
-
-def _extract_apply_features(profile: dict, candidate: dict) -> dict:
-    """Extract structured features for apply mode logging."""
-    profile_genres = _setify(profile.get("preferredGenres"))
-    candidate_genres = _setify(candidate.get("genres"))
-    shared_genres = profile_genres & candidate_genres
-
-    profile_parts = _setify(profile.get("primaryParts"))
-    candidate_parts = _setify(candidate.get("parts"))
-    shared_parts = profile_parts & candidate_parts
-
-    profile_slots = _setify(profile["performancePreferences"].get("availableTimeSlots"))
-    candidate_slots = _setify(candidate.get("availability"))
-    shared_slots = profile_slots & candidate_slots
-
-    profile_style = _normalize_text(profile["performancePreferences"].get("performanceStyle"))
-    candidate_style = _normalize_text(candidate.get("style"))
-
-    profile_freq = _normalize_text(profile["performancePreferences"].get("practiceFrequency"))
-    candidate_freq = _normalize_text(candidate.get("practiceFrequency"))
-
-    profile_goals = _setify(profile["activityGoal"].get("activityGoals"))
-    candidate_goal = _normalize_text(candidate.get("activityGoal"))
-
-    required_conditions, avoid_conditions = _build_required_avoid_sets(profile)
-    candidate_tags = _setify(candidate.get("tags"))
-
-    required_matched = required_conditions & candidate_tags
-    avoid_conflicts = avoid_conditions & candidate_tags
-
-    profile_sido = _extract_profile_region_sido(profile)
-    profile_sigungu = _extract_profile_region_sigungu(profile)
-
-    candidate_sido = _normalize_text(candidate.get("regionSido"))
-    candidate_sigungu = _normalize_text(candidate.get("regionSigungu"))
-
-    return {
-        "instrument_overlap": 1.0 if (_setify(profile.get("playableInstruments")) & _setify(candidate.get("instruments"))) else 0.0,
-        "region_sido_match": 1.0 if profile_sido and candidate_sido and profile_sido == candidate_sido else 0.0,
-        "same_sigungu": 1.0 if profile_sigungu and candidate_sigungu and profile_sigungu == candidate_sigungu else 0.0,
-        "genre_overlap_ratio": _safe_ratio(len(shared_genres), max(len(profile_genres), len(candidate_genres))),
-        "part_overlap_ratio": _safe_ratio(len(shared_parts), max(len(profile_parts), len(candidate_parts))),
-        "style_match": 1.0 if profile_style and profile_style == candidate_style else 0.0,
-        "time_overlap_ratio": _safe_ratio(len(shared_slots), max(len(profile_slots), len(candidate_slots))),
-        "practice_similarity": _practice_similarity(profile_freq, candidate_freq),
-        "goal_similarity": _goal_similarity(profile_goals, candidate_goal),
-        "required_match_ratio": _safe_ratio(len(required_matched), len(required_conditions)),
-        "avoid_conflict_ratio": _safe_ratio(len(avoid_conflicts), len(avoid_conditions)),
-    }  
-    
-def _extract_recruit_features(profile: dict, candidate: dict, recruit_needs: list[dict]) -> dict:
-    """Extract structured features for recruit mode logging."""
-    base = _extract_apply_features(profile, candidate)
-
-    normalized_needs = [need for need in recruit_needs if isinstance(need, dict)]
-    if normalized_needs:
-        coverage_values = [_coverage_for_need(need, candidate) for need in normalized_needs]
-        required_needs = [need for need in normalized_needs if bool(need.get("required"))]
-        required_coverage_values = [_coverage_for_need(need, candidate) for need in required_needs]
-    else:
-        coverage_values = []
-        required_needs = []
-        required_coverage_values = []
-
-    base.update(
-        {
-            "recruit_needs_coverage": (
-                sum(coverage_values) / len(coverage_values) if coverage_values else 0.0
-            ),
-            "required_recruit_needs_coverage": (
-                sum(required_coverage_values) / len(required_coverage_values)
-                if required_coverage_values
-                else 0.0
-            ),
-            "required_recruit_need_count": float(len(required_needs)),
-            "recruit_need_count": float(len(normalized_needs)),
-        }
-    )
-    return base
