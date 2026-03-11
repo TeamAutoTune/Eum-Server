@@ -48,6 +48,16 @@ def get_performance(performance_id: int, db: Session = Depends(get_db)):
     return board_service.get_performance(db, performance_id)
 
 
+@router.delete("/performances/{performance_id}", response_model=DeleteResponse)
+def delete_performance(
+    performance_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    success = board_service.delete_performance(db, performance_id)
+    return DeleteResponse(success=success)
+
+
 @router.get("/reviews", response_model=list[BoardReviewOut])
 def list_reviews(
     performance_id: int | None = Query(default=None),
@@ -64,6 +74,16 @@ def create_review(
     current_user: User = Depends(get_current_user),
 ):
     return board_service.create_review(db, payload)
+
+
+@router.delete("/reviews/{review_id}", response_model=DeleteResponse)
+def delete_review(
+    review_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    success = board_service.delete_review(db, review_id)
+    return DeleteResponse(success=success)
 
 
 @router.get("/free-posts", response_model=list[FreeBoardPostOut])
