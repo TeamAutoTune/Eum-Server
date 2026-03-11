@@ -20,6 +20,8 @@ class MatchingResultOut(BaseModel):
     rank_position: int
     id: str
     nickname: str
+    has_team: bool = False
+    team_id: str = ""
     instruments: list[str] = Field(default_factory=list)
     parts: list[str] = Field(default_factory=list)
     genres: list[str] = Field(default_factory=list)

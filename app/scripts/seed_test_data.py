@@ -157,10 +157,6 @@ def run(args: argparse.Namespace) -> int:
             )
 
         leaders = users[: args.teams]
-        members = users[args.teams :]
-        member_buckets: list[list[User]] = [[] for _ in range(args.teams)]
-        for idx, member in enumerate(members):
-            member_buckets[idx % args.teams].append(member)
 
         for index, leader in enumerate(leaders, start=1):
             leader_user_ids.add(leader.id)
@@ -195,9 +191,6 @@ def run(args: argparse.Namespace) -> int:
 
             db.execute(delete(TeamMember).where(TeamMember.team_id == team.id))
             db.add(TeamMember(team_id=team.id, user_id=leader.id, role="leader"))
-            for member in member_buckets[index - 1]:
-                db.add(TeamMember(team_id=team.id, user_id=member.id, role="member"))
-                team_id_by_user_id[member.id] = team.id
             team_id_by_user_id[leader.id] = team.id
             report["team_memberships_reset"] += 1
 
