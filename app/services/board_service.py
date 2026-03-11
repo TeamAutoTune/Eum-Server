@@ -27,6 +27,16 @@ def get_performance(db: Session, performance_id: int) -> BoardPerformance:
     return performance
 
 
+def delete_performance(db: Session, performance_id: int) -> bool:
+    performance = db.get(BoardPerformance, performance_id)
+    if not performance:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Performance not found")
+
+    db.delete(performance)
+    db.commit()
+    return True
+
+
 def list_reviews(
     db: Session,
     performance_id: int | None = None,
@@ -55,6 +65,16 @@ def create_review(db: Session, payload: BoardReviewCreateRequest) -> BoardReview
     db.commit()
     db.refresh(review)
     return review
+
+
+def delete_review(db: Session, review_id: int) -> bool:
+    review = db.get(BoardReview, review_id)
+    if not review:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Review not found")
+
+    db.delete(review)
+    db.commit()
+    return True
 
 
 def _likes_expr():
