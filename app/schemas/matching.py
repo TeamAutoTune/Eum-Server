@@ -32,6 +32,7 @@ class MatchingResultOut(BaseModel):
     tags: list[str] = Field(default_factory=list)
     matchScore: int
     reasons: list[str] = Field(default_factory=list)
+    ai_summary: str | None = None
 
 
 class MatchingRecommendResponse(BaseModel):

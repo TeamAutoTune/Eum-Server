@@ -11,11 +11,13 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.matching import MatchingProfile
 from app.models.team import Team, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.services import chat_service
+from app.services.matching_ai_summary_service import generate_ai_summary
 from app.services.recommendation_logging import log_match_event, log_match_features
 
 
@@ -1044,6 +1046,8 @@ def recommend_matches(
 
         candidate_map = {str(item.get("id")): item for item in filtered_candidates_raw}
         results: list[dict] = []
+        summary_limit = max(settings.llm_summary_top_n, 0)
+        summary_enabled = bool((settings.llm_api_key or "").strip()) and summary_limit > 0
 
         for rank_position, item in enumerate(scored, start=1):
             try:
@@ -1086,6 +1090,16 @@ def recommend_matches(
                     extra={"ranking_version": effective_ranking_version},
                 )
 
+                card_data = _candidate_to_card(candidate)
+                ai_summary: str | None = None
+                if summary_enabled and rank_position <= summary_limit:
+                    ai_summary = generate_ai_summary(
+                        mode=mode,
+                        card=card_data,
+                        candidate=candidate,
+                        nickname=str(item.get("nickname") or "Unknown"),
+                    )
+
                 results.append(
                     {
                         "recommendation_id": recommendation_id,
@@ -1094,7 +1108,8 @@ def recommend_matches(
                         "nickname": str(item.get("nickname") or "Unknown"),
                         "matchScore": final_score,
                         "reasons": _safe_list(item.get("reasons")),
-                        **_candidate_to_card(candidate),
+                        "ai_summary": ai_summary,
+                        **card_data,
                     }
                 )
             except Exception:
