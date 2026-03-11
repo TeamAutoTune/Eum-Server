@@ -12,6 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.matching import MatchingProfile
+from app.models.team import Team, TeamMember
+from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.services import chat_service
 from app.services.recommendation_logging import log_match_event, log_match_features
@@ -41,6 +43,13 @@ def _safe_text(value: Any) -> str:
 
 def _safe_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _safe_deepcopy(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return value
 
 
 def _norm_text(value: Any) -> str:
@@ -77,6 +86,18 @@ def _first_non_empty(*values: Any) -> Any:
         if value not in (None, "", [], {}):
             return value
     return None
+
+
+def _merge_missing_dict(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+    merged = _safe_dict(_safe_deepcopy(base))
+    for key, extra_value in _safe_dict(extra).items():
+        current_value = merged.get(key)
+        if isinstance(current_value, dict) and isinstance(extra_value, dict):
+            merged[key] = _merge_missing_dict(current_value, extra_value)
+            continue
+        if current_value in (None, "", [], {}):
+            merged[key] = _safe_deepcopy(extra_value)
+    return merged
 
 
 def _extract_activity_goals_raw(data: dict[str, Any]) -> list[Any]:
@@ -155,6 +176,151 @@ def _extract_lifestyle_fields(data: dict[str, Any]) -> dict[str, Any]:
         "social": _safe_text(_first_non_empty(lifestyle.get("social"), data.get("social"))),
         "meal": _safe_text(_first_non_empty(lifestyle.get("meal"), data.get("meal"))),
     }
+
+
+def _build_leader_profile_data(profile_data: dict[str, Any], candidate_data: dict[str, Any]) -> dict[str, Any]:
+    lifestyle = _extract_lifestyle_fields(profile_data or candidate_data or {})
+    performance_preferences = _safe_dict(profile_data.get("performancePreferences"))
+    return {
+        "style": _safe_text(
+            _first_non_empty(
+                candidate_data.get("style"),
+                performance_preferences.get("performanceStyle"),
+            )
+        ),
+        "lifestyle": lifestyle,
+        "performancePreferences": {
+            "performanceStyle": _safe_text(performance_preferences.get("performanceStyle")),
+            "activityRegion": _safe_text(performance_preferences.get("activityRegion")),
+            "activityRegionSido": _safe_text(performance_preferences.get("activityRegionSido")),
+            "activityRegionSigungu": _safe_text(performance_preferences.get("activityRegionSigungu")),
+            "availableTimeSlots": _safe_list(performance_preferences.get("availableTimeSlots")),
+            "practiceFrequency": _safe_text(performance_preferences.get("practiceFrequency")),
+        },
+    }
+
+
+def _team_to_profile_data(team: Team, team_matching_profile: TeamMatchingProfile | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    stored_profile = _safe_dict(team_matching_profile.profile_data if team_matching_profile else {})
+    stored_team_profile = _safe_dict(stored_profile.get("teamProfile"))
+    try:
+        team_genres = json.loads(team.genres or "[]")
+        if not isinstance(team_genres, list):
+            team_genres = []
+    except (TypeError, json.JSONDecodeError):
+        team_genres = []
+    recruit_needs = _safe_list(team_matching_profile.recruit_needs if team_matching_profile else [])
+    team_profile = {
+        "teamProfile": {
+            "teamName": team.team_name,
+            "genres": _safe_list(_first_non_empty(stored_team_profile.get("genres"), stored_profile.get("genres"), team_genres)),
+            "practiceFrequency": _safe_text(
+                _first_non_empty(stored_team_profile.get("practiceFrequency"), stored_profile.get("practiceFrequency"))
+            ),
+            "region": _safe_text(_first_non_empty(stored_team_profile.get("region"), stored_profile.get("region"), team.region)),
+            "regionSido": _safe_text(_first_non_empty(stored_team_profile.get("regionSido"), stored_profile.get("regionSido"))),
+            "regionSigungu": _safe_text(_first_non_empty(stored_team_profile.get("regionSigungu"), stored_profile.get("regionSigungu"))),
+            "averageAge": _safe_text(_first_non_empty(stored_team_profile.get("averageAge"), stored_profile.get("averageAge"), team.average_age)),
+            "activityGoal": {
+                "activityGoals": _safe_list(
+                    _first_non_empty(
+                        _safe_dict(stored_team_profile.get("activityGoal")).get("activityGoals"),
+                        _safe_dict(stored_profile.get("activityGoal")).get("activityGoals"),
+                    )
+                ),
+            },
+            "recruitingSessions": _safe_list(
+                _first_non_empty(stored_team_profile.get("recruitingSessions"), stored_profile.get("recruitingSessions"))
+            ),
+        },
+        "genres": _safe_list(_first_non_empty(stored_profile.get("genres"), team_genres)),
+        "practiceFrequency": _safe_text(_first_non_empty(stored_profile.get("practiceFrequency"), stored_team_profile.get("practiceFrequency"))),
+        "region": _safe_text(_first_non_empty(stored_profile.get("region"), stored_team_profile.get("region"), team.region)),
+        "regionSido": _safe_text(_first_non_empty(stored_profile.get("regionSido"), stored_team_profile.get("regionSido"))),
+        "regionSigungu": _safe_text(_first_non_empty(stored_profile.get("regionSigungu"), stored_team_profile.get("regionSigungu"))),
+        "averageAge": _safe_text(_first_non_empty(stored_profile.get("averageAge"), stored_team_profile.get("averageAge"), team.average_age)),
+        "activityGoal": {
+            "activityGoals": _safe_list(
+                _first_non_empty(
+                    _safe_dict(stored_profile.get("activityGoal")).get("activityGoals"),
+                    _safe_dict(stored_team_profile.get("activityGoal")).get("activityGoals"),
+                )
+            ),
+        },
+        "recruitingSessions": _safe_list(
+            _first_non_empty(stored_profile.get("recruitingSessions"), stored_team_profile.get("recruitingSessions"))
+        ),
+        "recruitNeeds": [item for item in recruit_needs if isinstance(item, dict)],
+    }
+    return team_profile, team_profile["recruitNeeds"]
+
+
+def _get_viewer_matching_profile(db: Session, viewer_id: str | None) -> MatchingProfile | None:
+    if not viewer_id or viewer_id == "anonymous":
+        return None
+    return db.scalar(select(MatchingProfile).where(MatchingProfile.user_id == viewer_id))
+
+
+def _get_viewer_team_context(
+    db: Session,
+    viewer_id: str | None,
+) -> tuple[Team | None, TeamMatchingProfile | None]:
+    if not viewer_id or viewer_id == "anonymous":
+        return None, None
+
+    team = db.scalar(
+        select(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == viewer_id)
+        .order_by(Team.created_at.desc())
+    )
+    if not team:
+        team = db.scalar(select(Team).where(Team.leader_id == viewer_id).order_by(Team.created_at.desc()))
+    if not team:
+        return None, None
+
+    team_profile = db.scalar(select(TeamMatchingProfile).where(TeamMatchingProfile.team_id == team.id))
+    return team, team_profile
+
+
+def _enrich_request_profile(
+    db: Session,
+    profile: dict[str, Any],
+    recruit_needs: list[dict[str, Any]],
+    viewer_id: str | None,
+    mode: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    merged_profile = _safe_dict(_safe_deepcopy(profile))
+    merged_recruit_needs = [item for item in recruit_needs if isinstance(item, dict)]
+
+    viewer_matching_profile = _get_viewer_matching_profile(db, viewer_id)
+    if viewer_matching_profile:
+        merged_profile = _merge_missing_dict(merged_profile, viewer_matching_profile.profile_data or {})
+        merged_profile = _merge_missing_dict(merged_profile, viewer_matching_profile.candidate_data or {})
+        merged_profile = _merge_missing_dict(
+            merged_profile,
+            {
+                "leaderProfile": _build_leader_profile_data(
+                    viewer_matching_profile.profile_data or {},
+                    viewer_matching_profile.candidate_data or {},
+                )
+            },
+        )
+
+    if mode != "recruit":
+        return merged_profile, merged_recruit_needs
+
+    team, team_matching_profile = _get_viewer_team_context(db, viewer_id)
+    if not team:
+        return merged_profile, merged_recruit_needs
+
+    team_profile_data, stored_recruit_needs = _team_to_profile_data(team, team_matching_profile)
+    merged_profile = _merge_missing_dict(merged_profile, team_profile_data)
+    if not merged_recruit_needs:
+        merged_recruit_needs = stored_recruit_needs
+    if not merged_profile.get("recruitNeeds"):
+        merged_profile["recruitNeeds"] = _safe_deepcopy(merged_recruit_needs)
+    return merged_profile, merged_recruit_needs
 
 
 def _build_engine_payload(
@@ -565,6 +731,9 @@ def _merge_recruit_needs(profile: dict, recruit_needs: list[dict]) -> dict:
 
 def _candidate_to_card(candidate: dict) -> dict:
     return {
+        "team_name": _safe_text(_first_non_empty(candidate.get("team_name"), candidate.get("teamName"))),
+        "teamProfile": _safe_dict(candidate.get("teamProfile")),
+        "leaderProfile": _safe_dict(candidate.get("leaderProfile")),
         "instruments": _safe_list(candidate.get("instruments")),
         "parts": _safe_list(candidate.get("parts")),
         "genres": _safe_list(candidate.get("genres")),
@@ -580,6 +749,8 @@ def _candidate_to_card(candidate: dict) -> dict:
 
 def _candidate_snapshot(candidate: dict) -> dict:
     return {
+        "team_name": _safe_text(_first_non_empty(candidate.get("team_name"), candidate.get("teamName"))),
+        "teamProfile": _safe_dict(candidate.get("teamProfile")),
         "instruments": _safe_list(candidate.get("instruments")),
         "parts": _safe_list(candidate.get("parts")),
         "genres": _safe_list(candidate.get("genres")),
@@ -664,7 +835,7 @@ def _safe_log_match_event(**kwargs: Any) -> None:
         )
 
 
-def list_candidates(db: Session, exclude_user_id: str | None = None) -> list[dict]:
+def list_user_candidates(db: Session, exclude_user_id: str | None = None) -> list[dict]:
     if exclude_user_id:
         base_users = chat_service.list_chat_candidates(db, exclude_user_id)
     else:
@@ -701,6 +872,78 @@ def list_candidates(db: Session, exclude_user_id: str | None = None) -> list[dic
     return candidates
 
 
+def list_team_candidates(db: Session, viewer_id: str | None = None) -> list[dict]:
+    base_teams = db.scalars(select(Team).order_by(Team.created_at.desc())).all()
+    if not base_teams:
+        return []
+
+    viewer_team_id: int | None = None
+    if viewer_id and viewer_id != "anonymous":
+        viewer_team = db.scalar(
+            select(Team)
+            .join(TeamMember, TeamMember.team_id == Team.id)
+            .where(TeamMember.user_id == viewer_id)
+            .order_by(Team.created_at.desc())
+        )
+        if not viewer_team:
+            viewer_team = db.scalar(select(Team).where(Team.leader_id == viewer_id).order_by(Team.created_at.desc()))
+        if viewer_team:
+            viewer_team_id = viewer_team.id
+
+    team_ids = [team.id for team in base_teams if team.id != viewer_team_id]
+    if not team_ids:
+        return []
+
+    team_profile_rows = db.execute(
+        select(TeamMatchingProfile).where(TeamMatchingProfile.team_id.in_(team_ids))
+    ).scalars().all()
+    team_profile_by_team_id = {row.team_id: row for row in team_profile_rows}
+
+    leader_ids = [team.leader_id for team in base_teams if team.id in team_ids]
+    leader_profiles = db.execute(
+        select(MatchingProfile).where(MatchingProfile.user_id.in_(leader_ids))
+    ).scalars().all() if leader_ids else []
+    leader_profile_by_user_id = {row.user_id: row for row in leader_profiles}
+
+    candidates: list[dict] = []
+    for team in base_teams:
+        if team.id == viewer_team_id:
+            continue
+
+        team_matching_profile = team_profile_by_team_id.get(team.id)
+        team_profile_data, recruit_needs = _team_to_profile_data(team, team_matching_profile)
+        leader_matching_profile = leader_profile_by_user_id.get(team.leader_id)
+        leader_profile = _build_leader_profile_data(
+            leader_matching_profile.profile_data if leader_matching_profile else {},
+            leader_matching_profile.candidate_data if leader_matching_profile else {},
+        )
+        candidate = {
+            "id": str(team.id),
+            "nickname": team.team_name,
+            "team_name": team.team_name,
+            "teamProfile": _safe_dict(team_profile_data.get("teamProfile")),
+            "leaderProfile": leader_profile,
+            "recruitNeeds": recruit_needs,
+            "recruitingSessions": _safe_list(team_profile_data.get("recruitingSessions")),
+            "genres": _safe_list(team_profile_data.get("genres")),
+            "region": _safe_text(team_profile_data.get("region")),
+            "regionSido": _safe_text(team_profile_data.get("regionSido")),
+            "regionSigungu": _safe_text(team_profile_data.get("regionSigungu")),
+            "practiceFrequency": _safe_text(team_profile_data.get("practiceFrequency")),
+            "averageAge": _safe_text(team_profile_data.get("averageAge")),
+            "activityGoal": _safe_dict(team_profile_data.get("activityGoal")),
+            "_profile_data": team_profile_data,
+        }
+        candidates.append(candidate)
+    return candidates
+
+
+def list_candidates(db: Session, mode: str, viewer_id: str | None = None) -> list[dict]:
+    if mode == "apply":
+        return list_team_candidates(db, viewer_id=viewer_id)
+    return list_user_candidates(db, exclude_user_id=viewer_id)
+
+
 def recommend_matches(
     db: Session,
     profile: dict,
@@ -732,7 +975,7 @@ def recommend_matches(
             effective_ranking_version = FALLBACK_RANKING_VERSION
 
         total_users = db.scalar(select(func.count()).select_from(User)) or 0
-        all_candidates = list_candidates(db, exclude_user_id=None)
+        all_candidates = list_candidates(db, mode=mode, viewer_id=viewer_id)
         if not all_candidates:
             all_candidates = generate_candidates(n=100, seed=42)
 
@@ -752,7 +995,14 @@ def recommend_matches(
                     f"id={candidate.get('id')} reason={reason}",
                 )
 
-        normalized_profile = _merge_recruit_needs(profile, recruit_needs)
+        enriched_profile, enriched_recruit_needs = _enrich_request_profile(
+            db,
+            profile,
+            recruit_needs,
+            viewer_id,
+            mode,
+        )
+        normalized_profile = _merge_recruit_needs(enriched_profile, enriched_recruit_needs)
         engine_profile = _normalize_profile_for_engine(normalized_profile, hard_filters)
 
         candidate_pairs: list[tuple[dict, dict]] = []

@@ -49,8 +49,8 @@ app = create_app()
 
 @app.on_event("startup")
 def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
     apply_startup_migrations(engine)
+    Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
     try:

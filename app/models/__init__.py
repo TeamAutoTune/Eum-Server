@@ -2,6 +2,7 @@ from app.models.board import BoardPerformance, BoardReview, FreeBoardComment, Fr
 from app.models.chat import ChatRoom, ChatRoomMember, Message
 from app.models.home import Review, TeamPromotion
 from app.models.matching import MatchingProfile
+from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.team import Team, TeamChecklist, TeamMember, TeamNotice, TeamSchedule
 from app.models.user import User
 
@@ -18,6 +19,7 @@ __all__ = [
     "TeamChecklist",
     "TeamSchedule",
     "MatchingProfile",
+    "TeamMatchingProfile",
     "BoardPerformance",
     "BoardReview",
     "FreeBoardPost",
