@@ -86,6 +86,7 @@ class TeamLeaveResponse(BaseModel):
 class TeamInviteRequest(BaseModel):
     nickname: str | None = Field(default=None, validation_alias=AliasChoices("nickname", "user_nickname"))
     user_id: str | None = Field(default=None, validation_alias=AliasChoices("user_id", "target_user_id"))
+    auto_accept_test: bool = False
     team_id: int | None = None
 
 

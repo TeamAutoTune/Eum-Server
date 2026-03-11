@@ -1,4 +1,5 @@
 import json
+import re
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -22,6 +23,14 @@ def _get_user_by_normalized_nickname(db: Session, nickname: str) -> User | None:
 
 def _clean_text(value: str | None) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _is_test_account(user: User) -> bool:
+    user_id = _clean_text(user.user_id)
+    nickname = _clean_text(user.nickname)
+    if user_id.startswith("seed_test_") or nickname.startswith("seed_test_"):
+        return True
+    return bool(re.match(r"^t\d{8}[_-]", user_id) or re.match(r"^t\d{8}[_-]", nickname))
 
 
 def _normalize_string_list(values: list[str] | None, max_items: int | None = None) -> list[str]:
@@ -276,13 +285,17 @@ def create_team_invite(db: Session, team_id: int, payload: TeamInviteRequest, in
     if existing_invite:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already invited")
 
+    invite_status = "joined" if payload.auto_accept_test and _is_test_account(target_user) else "invited"
+
     invite = TeamInvite(
         team_id=team_id,
         invited_user_id=target_user.id,
         invited_by_user_id=inviter.id,
-        status="invited",
+        status=invite_status,
     )
     db.add(invite)
+    if invite_status == "joined":
+        db.add(TeamMember(team_id=team_id, user_id=target_user.id, role="member"))
     db.commit()
     db.refresh(invite)
     return invite
