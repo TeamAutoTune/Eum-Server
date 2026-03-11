@@ -1,4 +1,5 @@
-﻿from datetime import datetime
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,6 +26,7 @@ class ChatUserOut(BaseModel):
     nickname: str
     user_id: str
     instrument: str
+    profileData: dict[str, Any] = Field(default_factory=dict)
 
 
 class MessageCreateRequest(BaseModel):
