@@ -38,6 +38,11 @@ def list_teams(db: Session = Depends(get_db)):
             team_name=team.team_name,
             description=team.description,
             leader=team.leader.nickname,
+            average_age=team.average_age,
+            region=team.region,
+            genres=team_service.team_genres(team),
+            gender_ratio=team.gender_ratio,
+            reference_songs=team_service.team_reference_songs(team),
         )
         for team in teams
     ]
@@ -56,6 +61,11 @@ def get_my_team(nickname: str, db: Session = Depends(get_db)):
             team_name=team.team_name,
             description=team.description,
             leader=team.leader.nickname,
+            average_age=team.average_age,
+            region=team.region,
+            genres=team_service.team_genres(team),
+            gender_ratio=team.gender_ratio,
+            reference_songs=team_service.team_reference_songs(team),
         ),
     )
 
@@ -70,6 +80,11 @@ def get_team_detail(team_id: int, db: Session = Depends(get_db)):
         description=team.description,
         leader=team.leader.nickname,
         members=members,
+        average_age=team.average_age,
+        region=team.region,
+        genres=team_service.team_genres(team),
+        gender_ratio=team.gender_ratio,
+        reference_songs=team_service.team_reference_songs(team),
     )
 
 
