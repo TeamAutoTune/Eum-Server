@@ -10,7 +10,10 @@ if str(ROOT) not in sys.path:
 from app.services.matching_service import (
     _normalize_candidate_for_engine,
     _normalize_profile_for_engine,
+    _team_to_profile_data,
 )
+from app.models.team import Team
+from app.models.team_matching_profile import TeamMatchingProfile
 
 
 def test_normalize_profile_for_engine_preserves_frontend_shape_and_derives_sessions() -> None:
@@ -97,3 +100,26 @@ def test_normalize_profile_for_engine_accepts_nested_team_profile() -> None:
     assert normalized["averageAge"] == "AGE_30S"
     assert normalized["recruitingSessions"] == ["DRUM"]
     assert normalized["style"] == "STYLE_BALANCED"
+
+
+def test_team_to_profile_data_includes_teamprofile_ai_summary() -> None:
+    team = Team(
+        team_name="BandA",
+        description="desc",
+        average_age="AGE_20S",
+        region="SEOUL",
+        genres='["rock"]',
+        gender_ratio="MIXED",
+        reference_songs="[]",
+        leader_id="leader-1",
+    )
+    team_matching_profile = TeamMatchingProfile(
+        team_id=1,
+        profile_data={"teamProfile": {"practiceFrequency": "PRACTICE_2"}},
+        recruit_needs=[{"instrument": "DRUM", "part": "MAIN"}],
+        recruit_summary="team recruit summary",
+    )
+
+    profile_data, _ = _team_to_profile_data(team, team_matching_profile)
+
+    assert profile_data["teamProfile"]["ai_summary"] == "team recruit summary"
