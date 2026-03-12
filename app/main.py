@@ -10,7 +10,6 @@ from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
 from app.services import board_service
 
-
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -22,6 +21,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 라우터 등록
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(board.router, prefix="/api/board", tags=["board"])
     app.include_router(board.upload_router, prefix="/api", tags=["uploads"])
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(team_checklist.router, prefix="/api/team", tags=["team-checklist"])
     app.include_router(team_schedule.router, prefix="/api/team", tags=["team-schedule"])
 
+    # 정적 파일 경로 설정
     static_dir = Path(__file__).resolve().parents[1] / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
@@ -45,17 +46,21 @@ def create_app() -> FastAPI:
 
     return app
 
-
 app = create_app()
-
 
 @app.on_event("startup")
 def on_startup() -> None:
+    # 1. 마이그레이션 및 테이블 생성
     apply_startup_migrations(engine)
     Base.metadata.create_all(bind=engine)
 
+    # 2. 시연용 데이터 강제 시딩
     db = SessionLocal()
     try:
+        # 기존 데이터를 지우고 새 데이터를 넣는 함수 호출
         board_service.seed_board_data(db)
+        print("🚀 [System] Demo data has been force-synchronized.")
+    except Exception as e:
+        print(f"❌ [Error] Seeding failed: {e}")
     finally:
         db.close()

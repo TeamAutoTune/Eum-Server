@@ -111,19 +111,36 @@ def generate_test_summary(
 
     try:
         from google import genai
+        from google.genai import errors as genai_errors
         from google.genai import types
     except Exception as exc:
         raise GeminiConfigError("GEMINI_SDK_MISSING", "Gemini SDK is not installed on the server.") from exc
 
     try:
-        client = genai.Client(api_key=api_key)
+        http_options = types.HttpOptions(
+            # Local/dev environments often export blocking proxy values.
+            # Defaulting to direct connection avoids false GEMINI_CALL_FAILED.
+            client_args={"trust_env": settings.gemini_use_env_proxy},
+            async_client_args={"trust_env": settings.gemini_use_env_proxy},
+        )
+        client = genai.Client(api_key=api_key, http_options=http_options)
         response = client.models.generate_content(
             model=settings.gemini_model,
             contents=prompt,
             config=types.GenerateContentConfig(temperature=0.3),
         )
-    except Exception as exc:
+    except genai_errors.ClientError as exc:
+        detail = str(exc)
+        if "PERMISSION_DENIED" in detail or "API key" in detail:
+            raise GeminiConfigError(
+                "GEMINI_AUTH_ERROR",
+                "Gemini API key is invalid, revoked, or blocked.",
+            ) from exc
+        if "RESOURCE_EXHAUSTED" in detail or "429" in detail:
+            raise GeminiCallError("GEMINI_RATE_LIMIT", "Gemini API rate limit exceeded.") from exc
         raise GeminiCallError("GEMINI_CALL_FAILED", "Failed to call Gemini API.") from exc
+    except Exception as exc:
+        raise GeminiCallError("GEMINI_NETWORK_ERROR", f"Failed to call Gemini API: {exc}") from exc
 
     text = getattr(response, "text", None)
     if not isinstance(text, str) or not text.strip():

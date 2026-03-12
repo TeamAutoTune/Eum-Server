@@ -27,6 +27,16 @@ def apply_startup_migrations(engine: Engine) -> None:
         if "age" not in existing_columns:
             statements.append("ALTER TABLE users ADD COLUMN age INTEGER")
 
+    if "matching_profiles" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("matching_profiles")}
+        if "profile_summary" not in existing_columns:
+            statements.append("ALTER TABLE matching_profiles ADD COLUMN profile_summary VARCHAR(255)")
+
+    if "team_matching_profiles" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("team_matching_profiles")}
+        if "recruit_summary" not in existing_columns:
+            statements.append("ALTER TABLE team_matching_profiles ADD COLUMN recruit_summary VARCHAR(255)")
+
     if not statements:
         return
 

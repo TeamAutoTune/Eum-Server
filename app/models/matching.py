@@ -19,6 +19,7 @@ class MatchingProfile(Base):
     )
     profile_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     candidate_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    profile_summary: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
