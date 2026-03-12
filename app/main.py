@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -57,6 +58,18 @@ app = create_app()
 
 @app.on_event("startup")
 def on_startup() -> None:
+    gemini_env_exists = bool((os.getenv("GEMINI_API_KEY") or "").strip())
+    gemini_settings_exists = bool((settings.gemini_api_key or "").strip())
+    llm_env_exists = bool((os.getenv("LLM_API_KEY") or "").strip())
+    llm_settings_exists = bool((settings.llm_api_key or "").strip())
+    logger.info(
+        "startup env check: GEMINI_API_KEY exists(os.getenv)=%s settings.gemini_api_key exists=%s LLM_API_KEY exists(os.getenv)=%s settings.llm_api_key exists=%s",
+        gemini_env_exists,
+        gemini_settings_exists,
+        llm_env_exists,
+        llm_settings_exists,
+    )
+
     apply_startup_migrations(engine)
     Base.metadata.create_all(bind=engine)
 
