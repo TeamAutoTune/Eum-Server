@@ -203,6 +203,7 @@ def _build_leader_profile_data(profile_data: dict[str, Any], candidate_data: dic
 def _team_to_profile_data(team: Team, team_matching_profile: TeamMatchingProfile | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     stored_profile = _safe_dict(team_matching_profile.profile_data if team_matching_profile else {})
     stored_team_profile = _safe_dict(stored_profile.get("teamProfile"))
+    recruit_summary = _safe_text(team_matching_profile.recruit_summary if team_matching_profile else "")
     try:
         team_genres = json.loads(team.genres or "[]")
         if not isinstance(team_genres, list):
@@ -213,6 +214,7 @@ def _team_to_profile_data(team: Team, team_matching_profile: TeamMatchingProfile
     team_profile = {
         "teamProfile": {
             "teamName": team.team_name,
+            "ai_summary": _safe_text(_first_non_empty(stored_team_profile.get("ai_summary"), recruit_summary)),
             "genres": _safe_list(_first_non_empty(stored_team_profile.get("genres"), stored_profile.get("genres"), team_genres)),
             "practiceFrequency": _safe_text(
                 _first_non_empty(stored_team_profile.get("practiceFrequency"), stored_profile.get("practiceFrequency"))
@@ -768,9 +770,19 @@ def _candidate_snapshot(candidate: dict) -> dict:
 
 def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
     if mode == "apply":
-        value = _safe_text(candidate.get("_recruit_summary"))
+        value = _safe_text(
+            _first_non_empty(
+                candidate.get("_recruit_summary"),
+                _safe_dict(candidate.get("teamProfile")).get("ai_summary"),
+            )
+        )
     else:
-        value = _safe_text(candidate.get("_profile_summary"))
+        value = _safe_text(
+            _first_non_empty(
+                candidate.get("_profile_summary"),
+                candidate.get("ai_summary"),
+            )
+        )
     return value or None
 
 
