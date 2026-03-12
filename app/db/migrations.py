@@ -37,6 +37,11 @@ def apply_startup_migrations(engine: Engine) -> None:
         if "recruit_summary" not in existing_columns:
             statements.append("ALTER TABLE team_matching_profiles ADD COLUMN recruit_summary VARCHAR(255)")
 
+    if "board_reviews" in table_names:
+        existing_columns = {column["name"] for column in inspector.get_columns("board_reviews")}
+        if "image_urls" not in existing_columns:
+            statements.append("ALTER TABLE board_reviews ADD COLUMN image_urls JSON")
+
     if not statements:
         return
 
