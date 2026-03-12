@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(default=1, validation_alias="LLM_MAX_RETRIES")
     llm_summary_top_n: int = Field(default=3, validation_alias="LLM_SUMMARY_TOP_N")
     gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
-    gemini_model: str = Field(default="gemini-1.5-flash", validation_alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-2.5-flash", validation_alias="GEMINI_MODEL")
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[2] / ".env"),
