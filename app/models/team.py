@@ -26,6 +26,11 @@ class Team(Base):
         back_populates="team",
         cascade="all, delete-orphan",
     )
+    invites: Mapped[list["TeamInvite"]] = relationship(
+        back_populates="team",
+        cascade="all, delete-orphan",
+        order_by="TeamInvite.created_at.desc()",
+    )
     notices: Mapped[list["TeamNotice"]] = relationship(
         back_populates="team",
         cascade="all, delete-orphan",
@@ -55,6 +60,23 @@ class TeamMember(Base):
 
     team: Mapped["Team"] = relationship(back_populates="members")
     user = relationship("User")
+
+
+class TeamInvite(Base):
+    __tablename__ = "team_invites"
+    __table_args__ = (UniqueConstraint("team_id", "invited_user_id", name="uq_team_invite_team_user"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), nullable=False)
+    invited_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    invited_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="invited")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    team: Mapped["Team"] = relationship(back_populates="invites")
+    invited_user = relationship("User", foreign_keys=[invited_user_id])
+    invited_by_user = relationship("User", foreign_keys=[invited_by_user_id])
 
 
 class TeamNotice(Base):

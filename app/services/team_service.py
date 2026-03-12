@@ -1,20 +1,36 @@
 import json
+import re
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.team import Team, TeamMember
+from app.models.team import Team, TeamInvite, TeamMember
 from app.models.user import User
-from app.schemas.team import TeamCreateRequest
+from app.schemas.team import TeamCreateRequest, TeamInviteRequest
 
 
 def _get_user_by_nickname(db: Session, nickname: str) -> User | None:
     return db.scalar(select(User).where(User.nickname == nickname))
 
 
+def _get_user_by_normalized_nickname(db: Session, nickname: str) -> User | None:
+    cleaned = nickname.strip()
+    if not cleaned:
+        return None
+    return db.scalar(select(User).where(func.lower(User.nickname) == cleaned.lower()))
+
+
 def _clean_text(value: str | None) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _is_test_account(user: User) -> bool:
+    user_id = _clean_text(user.user_id)
+    nickname = _clean_text(user.nickname)
+    if user_id.startswith("seed_test_") or nickname.startswith("seed_test_"):
+        return True
+    return bool(re.match(r"^t\d{8}[_-]", user_id) or re.match(r"^t\d{8}[_-]", nickname))
 
 
 def _normalize_string_list(values: list[str] | None, max_items: int | None = None) -> list[str]:
@@ -54,6 +70,14 @@ def _get_team_or_404(db: Session, team_id: int) -> Team:
     if not team:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
     return team
+
+
+def _get_team_member(db: Session, team_id: int, user_id: str) -> TeamMember | None:
+    return db.scalar(select(TeamMember).where(TeamMember.team_id == team_id, TeamMember.user_id == user_id))
+
+
+def _get_user_team_membership(db: Session, user_id: str) -> TeamMember | None:
+    return db.scalar(select(TeamMember).where(TeamMember.user_id == user_id).order_by(TeamMember.id.asc()))
 
 
 def create_team(db: Session, payload: TeamCreateRequest) -> Team:
@@ -212,3 +236,80 @@ def team_genres(team: Team) -> list[str]:
 
 def team_reference_songs(team: Team) -> list[str]:
     return _load_string_list(team.reference_songs)
+
+
+def create_team_invite(db: Session, team_id: int, payload: TeamInviteRequest, inviter: User) -> TeamInvite:
+    _get_team_or_404(db, team_id)
+
+    inviter_membership = _get_team_member(db, team_id, inviter.id)
+    if not inviter_membership or inviter_membership.role != "leader":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only team leaders can invite users")
+
+    normalized_user_id = _clean_text(payload.user_id)
+    normalized_nickname = _clean_text(payload.nickname)
+
+    target_user: User | None = None
+    if normalized_user_id:
+        target_user = db.scalar(select(User).where(User.id == normalized_user_id))
+        if not target_user:
+            target_user = db.scalar(select(User).where(User.user_id == normalized_user_id))
+    elif normalized_nickname:
+        target_user = _get_user_by_normalized_nickname(db, normalized_nickname)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="nickname or user_id is required",
+        )
+
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
+
+    if target_user.id == inviter.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot invite yourself")
+
+    existing_member = _get_team_member(db, team_id, target_user.id)
+    if existing_member:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already a team member")
+
+    existing_membership = _get_user_team_membership(db, target_user.id)
+    if existing_membership and existing_membership.team_id != team_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already belongs to another team")
+
+    existing_invite = db.scalar(
+        select(TeamInvite).where(
+            TeamInvite.team_id == team_id,
+            TeamInvite.invited_user_id == target_user.id,
+            TeamInvite.status == "invited",
+        )
+    )
+    if existing_invite:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already invited")
+
+    invite_status = "joined" if payload.auto_accept_test and _is_test_account(target_user) else "invited"
+
+    invite = TeamInvite(
+        team_id=team_id,
+        invited_user_id=target_user.id,
+        invited_by_user_id=inviter.id,
+        status=invite_status,
+    )
+    db.add(invite)
+    if invite_status == "joined":
+        db.add(TeamMember(team_id=team_id, user_id=target_user.id, role="member"))
+    db.commit()
+    db.refresh(invite)
+    return invite
+
+
+def list_team_invites(db: Session, team_id: int, current_user: User) -> list[TeamInvite]:
+    _get_team_or_404(db, team_id)
+
+    membership = _get_team_member(db, team_id, current_user.id)
+    if not membership or membership.role != "leader":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only team leaders can view invites")
+
+    return db.scalars(
+        select(TeamInvite)
+        .where(TeamInvite.team_id == team_id, TeamInvite.status == "invited")
+        .order_by(TeamInvite.created_at.desc())
+    ).all()

@@ -12,7 +12,7 @@ from app.db.base import Base
 from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
 from app.models.matching import MatchingProfile
-from app.models.team import Team, TeamMember
+from app.models.team import Team, TeamInvite, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.scripts.test_data_support import (
@@ -49,6 +49,7 @@ def _prepare_schema() -> None:
         Base.metadata.create_all(bind=engine)
     else:
         TeamMatchingProfile.__table__.create(bind=engine, checkfirst=True)
+        TeamInvite.__table__.create(bind=engine, checkfirst=True)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -95,7 +96,12 @@ def run(args: argparse.Namespace) -> int:
         for index in range(1, args.users + 1):
             user_id = build_user_id(args.prefix, index)
             nickname = build_nickname(args.prefix, index)
-            profile_data, candidate_data = generate_user_profile(args.prefix, index, rng)
+            profile_data, candidate_data = generate_user_profile(
+                args.prefix,
+                index,
+                rng,
+                force_sido=args.force_sido,
+            )
             instrument = candidate_data["instruments"][0]
 
             user = db.scalar(select(User).where(User.user_id == user_id))
@@ -151,15 +157,16 @@ def run(args: argparse.Namespace) -> int:
             )
 
         leaders = users[: args.teams]
-        members = users[args.teams :]
-        member_buckets: list[list[User]] = [[] for _ in range(args.teams)]
-        for idx, member in enumerate(members):
-            member_buckets[idx % args.teams].append(member)
 
         for index, leader in enumerate(leaders, start=1):
             leader_user_ids.add(leader.id)
             team_name = build_team_name(args.prefix, index)
-            team_fields, team_profile_data, recruit_needs, _ = generate_team_seed(args.prefix, index, rng)
+            team_fields, team_profile_data, recruit_needs, _ = generate_team_seed(
+                args.prefix,
+                index,
+                rng,
+                force_sido=args.force_sido,
+            )
             team = db.scalar(select(Team).where(Team.team_name == team_name))
 
             field_payload = {
@@ -184,9 +191,6 @@ def run(args: argparse.Namespace) -> int:
 
             db.execute(delete(TeamMember).where(TeamMember.team_id == team.id))
             db.add(TeamMember(team_id=team.id, user_id=leader.id, role="leader"))
-            for member in member_buckets[index - 1]:
-                db.add(TeamMember(team_id=team.id, user_id=member.id, role="member"))
-                team_id_by_user_id[member.id] = team.id
             team_id_by_user_id[leader.id] = team.id
             report["team_memberships_reset"] += 1
 
@@ -269,6 +273,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--prefix", type=str, required=True, help="Distinct prefix for test data, e.g. t20260311.")
     parser.add_argument("--password", type=str, default="seed1234", help="Shared password for seeded test users.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducible data.")
+    parser.add_argument(
+        "--force-sido",
+        type=str,
+        default=None,
+        help="Force all seeded regions to one sido, e.g. 서울특별시.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Build and validate data, then roll back.")
     parser.add_argument(
         "--output-dir",

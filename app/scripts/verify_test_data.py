@@ -10,7 +10,7 @@ from app.db.base import Base
 from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
 from app.models.matching import MatchingProfile
-from app.models.team import Team
+from app.models.team import Team, TeamInvite, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 
@@ -27,6 +27,7 @@ def _prepare_schema() -> None:
         Base.metadata.create_all(bind=engine)
     else:
         TeamMatchingProfile.__table__.create(bind=engine, checkfirst=True)
+        TeamInvite.__table__.create(bind=engine, checkfirst=True)
 
 
 def run(args: argparse.Namespace) -> int:
@@ -42,12 +43,18 @@ def run(args: argparse.Namespace) -> int:
         )
         teams = db.scalars(select(Team).where(Team.team_name.like(f"{args.prefix}%")).order_by(Team.id.asc())).all()
         team_ids = [team.id for team in teams]
+        team_members = (
+            db.scalars(select(TeamMember).where(TeamMember.team_id.in_(team_ids))).all()
+            if team_ids
+            else []
+        )
         team_profiles = (
             db.scalars(select(TeamMatchingProfile).where(TeamMatchingProfile.team_id.in_(team_ids))).all()
             if team_ids
             else []
         )
         teams_with_recruit_needs = sum(1 for item in team_profiles if item.recruit_needs)
+        users_with_team = len({member.user_id for member in team_members})
 
         print(
             json.dumps(
@@ -58,6 +65,9 @@ def run(args: argparse.Namespace) -> int:
                         "test_users": len(users),
                         "onboarding_profiles": len(profiles),
                         "teams": len(teams),
+                        "team_memberships": len(team_members),
+                        "users_with_team": users_with_team,
+                        "standalone_users": max(len(users) - users_with_team, 0),
                         "team_profiles": len(team_profiles),
                         "teams_with_recruit_needs": teams_with_recruit_needs,
                     },

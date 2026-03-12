@@ -83,3 +83,12 @@ def list_chat_candidates(db: Session, me_id: str) -> list[User]:
         .where(User.id != me_id)
         .order_by(User.created_at.desc())
     ).all()
+
+
+def list_chat_candidate_profiles(db: Session, me_id: str) -> list[tuple[User, MatchingProfile]]:
+    return db.execute(
+        select(User, MatchingProfile)
+        .join(MatchingProfile, MatchingProfile.user_id == User.id)
+        .where(User.id != me_id)
+        .order_by(User.created_at.desc())
+    ).all()

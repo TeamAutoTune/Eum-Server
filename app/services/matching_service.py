@@ -734,6 +734,8 @@ def _candidate_to_card(candidate: dict) -> dict:
         "team_name": _safe_text(_first_non_empty(candidate.get("team_name"), candidate.get("teamName"))),
         "teamProfile": _safe_dict(candidate.get("teamProfile")),
         "leaderProfile": _safe_dict(candidate.get("leaderProfile")),
+        "has_team": bool(candidate.get("has_team")),
+        "team_id": _safe_text(candidate.get("team_id")),
         "instruments": _safe_list(candidate.get("instruments")),
         "parts": _safe_list(candidate.get("parts")),
         "genres": _safe_list(candidate.get("genres")),
@@ -751,6 +753,8 @@ def _candidate_snapshot(candidate: dict) -> dict:
     return {
         "team_name": _safe_text(_first_non_empty(candidate.get("team_name"), candidate.get("teamName"))),
         "teamProfile": _safe_dict(candidate.get("teamProfile")),
+        "has_team": bool(candidate.get("has_team")),
+        "team_id": _safe_text(candidate.get("team_id")),
         "instruments": _safe_list(candidate.get("instruments")),
         "parts": _safe_list(candidate.get("parts")),
         "genres": _safe_list(candidate.get("genres")),
@@ -859,6 +863,11 @@ def list_user_candidates(db: Session, exclude_user_id: str | None = None) -> lis
         .where(User.id.in_(base_ids))
     ).all()
 
+    membership_rows = db.execute(
+        select(TeamMember.user_id, TeamMember.team_id).where(TeamMember.user_id.in_(base_ids))
+    ).all()
+    team_id_by_user_id = {user_id: team_id for user_id, team_id in membership_rows}
+
     profile_by_user_id: dict[str, tuple[User, MatchingProfile]] = {
         user.id: (user, matching_profile)
         for user, matching_profile in rows
@@ -866,6 +875,9 @@ def list_user_candidates(db: Session, exclude_user_id: str | None = None) -> lis
 
     candidates: list[dict] = []
     for user in base_users:
+        if user.id in team_id_by_user_id:
+            continue
+
         pair = profile_by_user_id.get(user.id)
         if not pair:
             continue
@@ -873,6 +885,8 @@ def list_user_candidates(db: Session, exclude_user_id: str | None = None) -> lis
         candidate = {
             "id": profile_user.id,
             "nickname": profile_user.nickname,
+            "has_team": False,
+            "team_id": "",
             "_profile_data": matching_profile.profile_data or {},
             "_profile_summary": matching_profile.profile_summary,
             **(matching_profile.candidate_data or {}),
@@ -929,6 +943,8 @@ def list_team_candidates(db: Session, viewer_id: str | None = None) -> list[dict
         candidate = {
             "id": str(team.id),
             "nickname": team.team_name,
+            "has_team": True,
+            "team_id": str(team.id),
             "team_name": team.team_name,
             "_recruit_summary": team_matching_profile.recruit_summary if team_matching_profile else None,
             "teamProfile": _safe_dict(team_profile_data.get("teamProfile")),
