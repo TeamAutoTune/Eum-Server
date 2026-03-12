@@ -769,11 +769,20 @@ def _candidate_snapshot(candidate: dict) -> dict:
 
 
 def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
+    profile_data = _safe_dict(candidate.get("_profile_data"))
+    profile_team = _safe_dict(profile_data.get("teamProfile"))
+    candidate_team = _safe_dict(candidate.get("teamProfile"))
+
     if mode == "apply":
         value = _safe_text(
             _first_non_empty(
                 candidate.get("_recruit_summary"),
-                _safe_dict(candidate.get("teamProfile")).get("ai_summary"),
+                candidate_team.get("ai_summary"),
+                candidate_team.get("summary"),
+                profile_team.get("ai_summary"),
+                profile_team.get("summary"),
+                profile_data.get("ai_summary"),
+                profile_data.get("summary"),
             )
         )
     else:
@@ -781,6 +790,9 @@ def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
             _first_non_empty(
                 candidate.get("_profile_summary"),
                 candidate.get("ai_summary"),
+                candidate.get("summary"),
+                profile_data.get("ai_summary"),
+                profile_data.get("summary"),
             )
         )
     return value or None

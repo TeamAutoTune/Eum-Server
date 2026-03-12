@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -12,6 +13,10 @@ from app.models.team import Team, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.schemas.onboarding import PersonalOnboardingUpsertRequest, TeamOnboardingUpsertRequest
+from app.services.matching_ai_summary_service import generate_profile_summary, generate_team_recruit_summary
+
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_text(value: Any) -> str:
@@ -232,6 +237,14 @@ def _get_team_source(payload: TeamOnboardingUpsertRequest) -> tuple[dict[str, An
     return _merge_non_empty(payload.profile_data, extra), recruit_needs
 
 
+def _apply_team_summary(profile_data: dict[str, Any], summary: str | None) -> dict[str, Any]:
+    normalized = _safe_dict(profile_data)
+    team_profile = _safe_dict(normalized.get("teamProfile"))
+    team_profile["ai_summary"] = _safe_text(summary)
+    normalized["teamProfile"] = team_profile
+    return normalized
+
+
 def upsert_personal_onboarding(
     db: Session,
     user: User,
@@ -249,6 +262,7 @@ def upsert_personal_onboarding(
     else:
         profile.profile_data = profile_data
         profile.candidate_data = candidate_data
+        profile.profile_summary = None
 
     primary_instrument = instruments[0] if (instruments := _string_list(candidate_data.get("instruments"))) else None
     if primary_instrument:
@@ -259,6 +273,26 @@ def upsert_personal_onboarding(
         db.refresh(profile)
     else:
         db.flush()
+
+    try:
+        profile_summary = generate_profile_summary(
+            profile_data=profile.profile_data or {},
+            candidate_data=profile.candidate_data or {},
+        )
+        if profile_summary:
+            profile.profile_summary = profile_summary
+            next_candidate_data = _safe_dict(profile.candidate_data)
+            next_candidate_data["ai_summary"] = profile_summary
+            profile.candidate_data = next_candidate_data
+            if auto_commit:
+                db.commit()
+                db.refresh(profile)
+            else:
+                db.flush()
+    except Exception:
+        if auto_commit:
+            db.rollback()
+        logger.exception("profile_summary generation failed after personal onboarding save user_id=%s", user.id)
     return profile
 
 
@@ -300,10 +334,29 @@ def upsert_team_onboarding(
     else:
         profile.profile_data = profile_data
         profile.recruit_needs = normalized_recruit_needs
+        profile.recruit_summary = None
 
     if auto_commit:
         db.commit()
         db.refresh(profile)
     else:
         db.flush()
+
+    try:
+        recruit_summary = generate_team_recruit_summary(
+            profile_data=profile.profile_data or {},
+            recruit_needs=profile.recruit_needs or [],
+        )
+        if recruit_summary:
+            profile.recruit_summary = recruit_summary
+            profile.profile_data = _apply_team_summary(profile.profile_data or {}, recruit_summary)
+            if auto_commit:
+                db.commit()
+                db.refresh(profile)
+            else:
+                db.flush()
+    except Exception:
+        if auto_commit:
+            db.rollback()
+        logger.exception("recruit_summary generation failed after team onboarding save team_id=%s", team.id)
     return profile
