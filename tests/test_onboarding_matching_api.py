@@ -10,6 +10,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.main import app
 from app.models.user import User
+from app.services import onboarding_service
 
 
 def _make_client_and_sessionmaker():
@@ -50,7 +51,13 @@ def _auth_headers(user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def test_personal_onboarding_upsert_makes_user_visible_in_recruit_matching() -> None:
+def test_personal_onboarding_upsert_makes_user_visible_in_recruit_matching(monkeypatch) -> None:
+    monkeypatch.setattr(
+        onboarding_service,
+        "generate_profile_summary",
+        lambda **_: "온보딩 요약 문장입니다.",
+    )
+
     client, SessionLocal = _make_client_and_sessionmaker()
 
     with SessionLocal() as db:
@@ -97,13 +104,27 @@ def test_personal_onboarding_upsert_makes_user_visible_in_recruit_matching() -> 
         headers=viewer_headers,
     )
     assert match_resp.status_code == 200, match_resp.text
-    nicknames = [row["nickname"] for row in match_resp.json()["results"]]
+    results = match_resp.json()["results"]
+    nicknames = [row["nickname"] for row in results]
     assert "candidate" in nicknames
+    candidate_row = next(row for row in results if row["nickname"] == "candidate")
+    assert candidate_row["ai_summary"] == "온보딩 요약 문장입니다."
 
     app.dependency_overrides.clear()
 
 
-def test_team_onboarding_upsert_makes_team_visible_in_apply_matching() -> None:
+def test_team_onboarding_upsert_makes_team_visible_in_apply_matching(monkeypatch) -> None:
+    monkeypatch.setattr(
+        onboarding_service,
+        "generate_profile_summary",
+        lambda **_: "개인 요약 문장입니다.",
+    )
+    monkeypatch.setattr(
+        onboarding_service,
+        "generate_team_recruit_summary",
+        lambda **_: "팀 모집 요약 문장입니다.",
+    )
+
     client, SessionLocal = _make_client_and_sessionmaker()
 
     with SessionLocal() as db:
@@ -191,7 +212,10 @@ def test_team_onboarding_upsert_makes_team_visible_in_apply_matching() -> None:
         headers=applicant_headers,
     )
     assert match_resp.status_code == 200, match_resp.text
-    nicknames = [row["nickname"] for row in match_resp.json()["results"]]
+    results = match_resp.json()["results"]
+    nicknames = [row["nickname"] for row in results]
     assert "hongdae-pop-rock" in nicknames
+    team_row = next(row for row in results if row["nickname"] == "hongdae-pop-rock")
+    assert team_row["ai_summary"] == "팀 모집 요약 문장입니다."
 
     app.dependency_overrides.clear()

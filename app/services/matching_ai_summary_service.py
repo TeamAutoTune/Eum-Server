@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import logging
@@ -98,14 +98,13 @@ def _has_summary_material(payload: dict[str, Any]) -> bool:
 
 def _build_prompt(payload: dict[str, Any], *, subject: str) -> str:
     return (
-        f"아래 {subject} JSON 데이터만 사용해 한 줄 소개문을 작성하세요.\n"
+        f"아래 {subject} JSON 데이터만 사용해서 소개 한 줄을 작성해 주세요.\n"
         "규칙:\n"
-        "1) 반드시 한국어 1문장으로 작성\n"
-        "2) 길이는 50~80자 내외\n"
+        "1) 반말 금지, 존댓말 1문장\n"
+        "2) 길이 50~80자 내외\n"
         "3) 과장/광고 문구 금지\n"
         "4) 입력 데이터에 없는 사실 추측 금지\n"
-        "5) 자연스러운 소개 문장, '입니다' 체 사용\n"
-        "6) 결과는 문장 하나만 출력\n\n"
+        "5) 결과는 문장 하나만 출력\n\n"
         f"입력 JSON:\n{json.dumps(payload, ensure_ascii=False)}"
     )
 
@@ -122,7 +121,7 @@ def _normalize_summary(text: str) -> str | None:
     if not normalized:
         return None
 
-    if not normalized.endswith("입니다"):
+    if not normalized.endswith("입니다") and not normalized.endswith("입니다요"):
         if normalized.endswith("다"):
             normalized = f"{normalized[:-1]}입니다"
         else:
@@ -136,15 +135,64 @@ def _normalize_summary(text: str) -> str | None:
     return normalized
 
 
+def _fallback_profile_summary(payload: dict[str, Any]) -> str | None:
+    instruments = ", ".join(_safe_list(payload.get("instruments"))[:2])
+    genres = ", ".join(_safe_list(payload.get("genres"))[:2])
+    region = _safe_text(payload.get("region"))
+    practice = _safe_text(payload.get("practiceFrequency"))
+    goal = _safe_text(payload.get("activityGoal"))
+
+    parts: list[str] = []
+    if instruments:
+        parts.append(f"{instruments} 기반")
+    if genres:
+        parts.append(f"{genres} 성향")
+    if region:
+        parts.append(f"{region} 활동")
+    if practice:
+        parts.append(f"{practice} 합주")
+    if goal:
+        parts.append(f"목표는 {goal}")
+
+    if not parts:
+        return None
+    return _normalize_summary(" / ".join(parts))
+
+
+def _fallback_team_summary(payload: dict[str, Any]) -> str | None:
+    team_name = _safe_text(payload.get("teamName"))
+    genres = ", ".join(_safe_list(payload.get("genres"))[:2])
+    region = _safe_text(payload.get("region"))
+    practice = _safe_text(payload.get("practiceFrequency"))
+    needs = ", ".join(_safe_list(payload.get("recruitNeeds"))[:2])
+
+    parts: list[str] = []
+    if team_name:
+        parts.append(f"{team_name} 팀")
+    if genres:
+        parts.append(f"{genres} 장르")
+    if region:
+        parts.append(f"{region} 중심")
+    if practice:
+        parts.append(f"{practice} 활동")
+    if needs:
+        parts.append(f"현재 {needs} 포지션 모집")
+
+    if not parts:
+        return None
+    return _normalize_summary(" / ".join(parts))
+
+
 def _generate_summary(prompt: str) -> str | None:
     gemini_api_key = (settings.gemini_api_key or "").strip()
     llm_api_key = (settings.llm_api_key or "").strip()
+    has_any_llm_key = bool(llm_api_key or gemini_api_key)
 
     if not gemini_api_key:
         logger.info("summary generation: GEMINI_API_KEY is not configured")
 
     try:
-        if llm_api_key:
+        if has_any_llm_key:
             answer = chat(prompt)
             summary = _normalize_summary(answer)
             if not summary:
@@ -177,11 +225,19 @@ def generate_profile_summary(*, profile_data: dict[str, Any], candidate_data: di
     payload = _profile_summary_payload(profile_data=profile_data or {}, candidate_data=candidate_data or {})
     if not _has_summary_material(payload):
         return None
-    return _generate_summary(_build_prompt(payload, subject="개인 프로필"))
+
+    llm_summary = _generate_summary(_build_prompt(payload, subject="개인 프로필"))
+    if llm_summary:
+        return llm_summary
+    return _fallback_profile_summary(payload)
 
 
 def generate_team_recruit_summary(*, profile_data: dict[str, Any], recruit_needs: list[dict[str, Any]]) -> str | None:
     payload = _team_recruit_summary_payload(profile_data=profile_data or {}, recruit_needs=recruit_needs or [])
     if not _has_summary_material(payload):
         return None
-    return _generate_summary(_build_prompt(payload, subject="팀 구인"))
+
+    llm_summary = _generate_summary(_build_prompt(payload, subject="팀 구인"))
+    if llm_summary:
+        return llm_summary
+    return _fallback_team_summary(payload)

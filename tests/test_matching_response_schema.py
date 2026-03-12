@@ -77,3 +77,28 @@ def test_candidate_ai_summary_falls_back_to_team_profile_summary() -> None:
     }
 
     assert _candidate_ai_summary(team_candidate, "apply") == "fallback team summary"
+
+
+def test_candidate_ai_summary_builds_fallback_from_candidate_payload() -> None:
+    apply_candidate = {
+        "team_name": "HongdaeBand",
+        "teamProfile": {
+            "genres": ["rock"],
+            "region": "Seoul Hongdae",
+            "practiceFrequency": "weekly_1",
+            "recruitingSessions": ["drum"],
+        },
+    }
+    recruit_candidate = {
+        "instruments": ["guitar"],
+        "genres": ["indie"],
+        "region": "Seoul Hongdae",
+        "practiceFrequency": "weekly_1",
+        "style": "balanced",
+    }
+
+    apply_summary = _candidate_ai_summary(apply_candidate, "apply")
+    recruit_summary = _candidate_ai_summary(recruit_candidate, "recruit")
+
+    assert isinstance(apply_summary, str) and apply_summary.strip()
+    assert isinstance(recruit_summary, str) and recruit_summary.strip()

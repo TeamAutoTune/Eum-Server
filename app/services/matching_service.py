@@ -768,6 +768,56 @@ def _candidate_snapshot(candidate: dict) -> dict:
     }
 
 
+def _fallback_candidate_ai_summary(candidate: dict, mode: str) -> str | None:
+    if mode == "apply":
+        team_profile = _safe_dict(candidate.get("teamProfile"))
+        profile_data = _safe_dict(candidate.get("_profile_data"))
+        profile_team = _safe_dict(profile_data.get("teamProfile"))
+        merged_team = {**profile_team, **team_profile}
+
+        team_name = _safe_text(_first_non_empty(candidate.get("team_name"), candidate.get("teamName"), candidate.get("nickname")))
+        genres = ", ".join(_safe_list(merged_team.get("genres"))[:2])
+        region = _safe_text(_first_non_empty(merged_team.get("region"), profile_data.get("region"), candidate.get("region")))
+        practice = _safe_text(_first_non_empty(merged_team.get("practiceFrequency"), profile_data.get("practiceFrequency"), candidate.get("practiceFrequency")))
+        sessions = ", ".join(_safe_list(_first_non_empty(merged_team.get("recruitingSessions"), profile_data.get("recruitingSessions")))[:2])
+
+        parts: list[str] = []
+        if team_name:
+            parts.append(f"{team_name} 팀")
+        if genres:
+            parts.append(f"{genres} 장르")
+        if region:
+            parts.append(f"{region} 활동")
+        if practice:
+            parts.append(f"{practice} 합주")
+        if sessions:
+            parts.append(f"{sessions} 파트 모집")
+        if parts:
+            return " / ".join(parts)
+        return None
+
+    instruments = ", ".join(_safe_list(candidate.get("instruments"))[:2])
+    genres = ", ".join(_safe_list(candidate.get("genres"))[:2])
+    region = _safe_text(candidate.get("region"))
+    practice = _safe_text(candidate.get("practiceFrequency"))
+    style = _safe_text(candidate.get("style"))
+
+    parts = []
+    if instruments:
+        parts.append(f"{instruments} 연주")
+    if genres:
+        parts.append(f"{genres} 선호")
+    if region:
+        parts.append(f"{region} 중심")
+    if practice:
+        parts.append(f"{practice} 활동")
+    if style:
+        parts.append(f"{style} 스타일")
+    if parts:
+        return " / ".join(parts)
+    return None
+
+
 def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
     profile_data = _safe_dict(candidate.get("_profile_data"))
     profile_team = _safe_dict(profile_data.get("teamProfile"))
@@ -795,7 +845,7 @@ def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
                 profile_data.get("summary"),
             )
         )
-    return value or None
+    return value or _fallback_candidate_ai_summary(candidate, mode)
 
 
 def _is_active_candidate(candidate: dict) -> bool:

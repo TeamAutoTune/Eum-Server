@@ -284,6 +284,9 @@ def upsert_personal_onboarding(
             next_candidate_data = _safe_dict(profile.candidate_data)
             next_candidate_data["ai_summary"] = profile_summary
             profile.candidate_data = next_candidate_data
+            next_profile_data = _safe_dict(profile.profile_data)
+            next_profile_data["ai_summary"] = profile_summary
+            profile.profile_data = next_profile_data
             if auto_commit:
                 db.commit()
                 db.refresh(profile)

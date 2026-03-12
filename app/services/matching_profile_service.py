@@ -110,6 +110,9 @@ def upsert_user_matching_profile(
             next_candidate_data = _safe_dict(row.candidate_data)
             next_candidate_data["ai_summary"] = profile_summary
             row.candidate_data = next_candidate_data
+            next_profile_data = _safe_dict(row.profile_data)
+            next_profile_data["ai_summary"] = profile_summary
+            row.profile_data = next_profile_data
             db.commit()
             db.refresh(row)
     except Exception:
