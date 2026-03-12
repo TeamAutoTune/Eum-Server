@@ -11,13 +11,11 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.matching import MatchingProfile
 from app.models.team import Team, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.services import chat_service
-from app.services.matching_ai_summary_service import generate_ai_summary
 from app.services.recommendation_logging import log_match_event, log_match_features
 
 
@@ -764,6 +762,14 @@ def _candidate_snapshot(candidate: dict) -> dict:
     }
 
 
+def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
+    if mode == "apply":
+        value = _safe_text(candidate.get("_recruit_summary"))
+    else:
+        value = _safe_text(candidate.get("_profile_summary"))
+    return value or None
+
+
 def _is_active_candidate(candidate: dict) -> bool:
     # User model currently has no explicit active flag; treat non-empty candidate payload as active.
     return bool(candidate.get("id")) and isinstance(candidate, dict)
@@ -868,6 +874,7 @@ def list_user_candidates(db: Session, exclude_user_id: str | None = None) -> lis
             "id": profile_user.id,
             "nickname": profile_user.nickname,
             "_profile_data": matching_profile.profile_data or {},
+            "_profile_summary": matching_profile.profile_summary,
             **(matching_profile.candidate_data or {}),
         }
         candidates.append(candidate)
@@ -923,6 +930,7 @@ def list_team_candidates(db: Session, viewer_id: str | None = None) -> list[dict
             "id": str(team.id),
             "nickname": team.team_name,
             "team_name": team.team_name,
+            "_recruit_summary": team_matching_profile.recruit_summary if team_matching_profile else None,
             "teamProfile": _safe_dict(team_profile_data.get("teamProfile")),
             "leaderProfile": leader_profile,
             "recruitNeeds": recruit_needs,
@@ -1046,8 +1054,6 @@ def recommend_matches(
 
         candidate_map = {str(item.get("id")): item for item in filtered_candidates_raw}
         results: list[dict] = []
-        summary_limit = max(settings.llm_summary_top_n, 0)
-        summary_enabled = bool((settings.llm_api_key or "").strip()) and summary_limit > 0
 
         for rank_position, item in enumerate(scored, start=1):
             try:
@@ -1091,14 +1097,7 @@ def recommend_matches(
                 )
 
                 card_data = _candidate_to_card(candidate)
-                ai_summary: str | None = None
-                if summary_enabled and rank_position <= summary_limit:
-                    ai_summary = generate_ai_summary(
-                        mode=mode,
-                        card=card_data,
-                        candidate=candidate,
-                        nickname=str(item.get("nickname") or "Unknown"),
-                    )
+                ai_summary = _candidate_ai_summary(candidate, mode)
 
                 results.append(
                     {
