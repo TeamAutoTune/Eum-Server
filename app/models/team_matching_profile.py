@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -19,6 +19,7 @@ class TeamMatchingProfile(Base):
     )
     profile_data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     recruit_needs: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    recruit_summary: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
