@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+import os
 import re
 from typing import Any
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiTestSummaryError(Exception):
@@ -93,7 +97,16 @@ def generate_test_summary(
     region: str,
     availability: list[str],
 ) -> str:
-    api_key = (settings.gemini_api_key or "").strip()
+    settings_api_key = (settings.gemini_api_key or "").strip()
+    env_api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    api_key = settings_api_key or env_api_key
+
+    logger.info(
+        "gemini summary env check: GEMINI_API_KEY exists(os.getenv)=%s, settings.gemini_api_key exists=%s",
+        bool(env_api_key),
+        bool(settings_api_key),
+    )
+
     if not api_key:
         raise GeminiConfigError("GEMINI_API_KEY_MISSING", "GEMINI_API_KEY is not configured.")
 
