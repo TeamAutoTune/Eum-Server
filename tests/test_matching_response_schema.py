@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import sys
 from pathlib import Path
@@ -32,13 +32,13 @@ def test_matching_result_out_keeps_team_card_fields_and_ai_summary() -> None:
         "recruitingSessions": ["DRUM"],
         "matchScore": 87,
         "reasons": ["genre_match"],
-        "ai_summary": "테스트 요약",
+        "ai_summary": "test summary",
     }
 
     result = MatchingResultOut.model_validate(payload)
 
     assert result.teamProfile["genres"] == ["rock"]
-    assert result.ai_summary == "테스트 요약"
+    assert result.ai_summary == "test summary"
 
 
 def test_matching_result_out_allows_null_ai_summary() -> None:
@@ -63,8 +63,17 @@ def test_matching_result_out_allows_null_ai_summary() -> None:
 
 
 def test_candidate_ai_summary_uses_db_summary_by_mode() -> None:
-    team_candidate = {"_recruit_summary": "팀 요약", "_profile_summary": "개인 요약"}
-    user_candidate = {"_recruit_summary": "팀 요약", "_profile_summary": "개인 요약"}
+    team_candidate = {"_recruit_summary": "team summary", "_profile_summary": "user summary"}
+    user_candidate = {"_recruit_summary": "team summary", "_profile_summary": "user summary"}
 
-    assert _candidate_ai_summary(team_candidate, "apply") == "팀 요약"
-    assert _candidate_ai_summary(user_candidate, "recruit") == "개인 요약"
+    assert _candidate_ai_summary(team_candidate, "apply") == "team summary"
+    assert _candidate_ai_summary(user_candidate, "recruit") == "user summary"
+
+
+def test_candidate_ai_summary_falls_back_to_team_profile_summary() -> None:
+    team_candidate = {
+        "_recruit_summary": None,
+        "teamProfile": {"ai_summary": "fallback team summary"},
+    }
+
+    assert _candidate_ai_summary(team_candidate, "apply") == "fallback team summary"

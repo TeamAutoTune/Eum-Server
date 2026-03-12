@@ -51,6 +51,14 @@ def _profile_to_candidate_data(profile_data: dict[str, Any], existing_candidate_
     }
 
 
+def _apply_team_summary(profile_data: dict[str, Any], summary: str | None) -> dict[str, Any]:
+    normalized = _safe_dict(profile_data)
+    team_profile = _safe_dict(normalized.get("teamProfile"))
+    team_profile["ai_summary"] = str(summary or "").strip()
+    normalized["teamProfile"] = team_profile
+    return normalized
+
+
 def _can_edit_team_profile(db: Session, user_id: str, team_id: int) -> bool:
     team = db.get(Team, team_id)
     if not team:
@@ -99,6 +107,9 @@ def upsert_user_matching_profile(
         )
         if profile_summary:
             row.profile_summary = profile_summary
+            next_candidate_data = _safe_dict(row.candidate_data)
+            next_candidate_data["ai_summary"] = profile_summary
+            row.candidate_data = next_candidate_data
             db.commit()
             db.refresh(row)
     except Exception:
@@ -146,6 +157,7 @@ def upsert_team_matching_profile(
         )
         if recruit_summary:
             row.recruit_summary = recruit_summary
+            row.profile_data = _apply_team_summary(row.profile_data or {}, recruit_summary)
             db.commit()
             db.refresh(row)
     except Exception:
