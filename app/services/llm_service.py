@@ -58,11 +58,11 @@ def _provider_error_message(response: httpx.Response, default_message: str) -> s
 
 
 def chat(message: str) -> str:
-    api_key = (settings.llm_api_key or "").strip()
+    api_key = (settings.llm_api_key or settings.gemini_api_key or "").strip()
     if not api_key:
         raise LLMConfigError(
             error_code="SERVER_CONFIG_ERROR",
-            message="LLM API key is not configured on the server.",
+            message="LLM API key is not configured on the server. Set LLM_API_KEY or GEMINI_API_KEY.",
         )
 
     base_url = settings.llm_base_url.rstrip("/")

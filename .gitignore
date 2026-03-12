@@ -6,7 +6,7 @@ __pycache__/
 
 # Env
 .env
-.env.example
+
 # OS
 .DS_Store
 Thumbs.db
