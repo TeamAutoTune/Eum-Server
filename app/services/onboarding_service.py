@@ -232,7 +232,13 @@ def _get_team_source(payload: TeamOnboardingUpsertRequest) -> tuple[dict[str, An
     return _merge_non_empty(payload.profile_data, extra), recruit_needs
 
 
-def upsert_personal_onboarding(db: Session, user: User, payload: PersonalOnboardingUpsertRequest) -> MatchingProfile:
+def upsert_personal_onboarding(
+    db: Session,
+    user: User,
+    payload: PersonalOnboardingUpsertRequest,
+    *,
+    auto_commit: bool = True,
+) -> MatchingProfile:
     source = _get_personal_source(payload)
     profile_data, candidate_data = _normalize_personal_payload(source)
 
@@ -248,8 +254,11 @@ def upsert_personal_onboarding(db: Session, user: User, payload: PersonalOnboard
     if primary_instrument:
         user.instrument = primary_instrument
 
-    db.commit()
-    db.refresh(profile)
+    if auto_commit:
+        db.commit()
+        db.refresh(profile)
+    else:
+        db.flush()
     return profile
 
 
@@ -259,6 +268,7 @@ def upsert_team_onboarding(
     team_id: int,
     current_user: User,
     payload: TeamOnboardingUpsertRequest,
+    auto_commit: bool = True,
 ) -> TeamMatchingProfile:
     team = db.get(Team, team_id)
     if not team:
@@ -291,6 +301,9 @@ def upsert_team_onboarding(
         profile.profile_data = profile_data
         profile.recruit_needs = normalized_recruit_needs
 
-    db.commit()
-    db.refresh(profile)
+    if auto_commit:
+        db.commit()
+        db.refresh(profile)
+    else:
+        db.flush()
     return profile
