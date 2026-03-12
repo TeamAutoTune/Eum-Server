@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = Field(default=None, validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.5-flash", validation_alias="GEMINI_MODEL")
     gemini_use_env_proxy: bool = Field(default=False, validation_alias="GEMINI_USE_ENV_PROXY")
+    backfill_onboarding_on_startup: bool = Field(default=False, validation_alias="BACKFILL_ONBOARDING_ON_STARTUP")
+    backfill_onboarding_user_id_prefix: str = Field(default="", validation_alias="BACKFILL_ONBOARDING_USER_ID_PREFIX")
+    backfill_onboarding_team_name_prefix: str = Field(default="", validation_alias="BACKFILL_ONBOARDING_TEAM_NAME_PREFIX")
 
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parents[2] / ".env"),
