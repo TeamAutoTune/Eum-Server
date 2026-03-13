@@ -16,6 +16,7 @@ from app.services.llm_service import (
 )
 
 logger = logging.getLogger(__name__)
+SUMMARY_PROMPT_VERSION = "matching_summary_v1"
 
 
 def _safe_list(value: Any) -> list[str]:
@@ -222,22 +223,47 @@ def _generate_summary(prompt: str) -> str | None:
 
 
 def generate_profile_summary(*, profile_data: dict[str, Any], candidate_data: dict[str, Any]) -> str | None:
+    summary, _ = generate_profile_summary_with_source(profile_data=profile_data, candidate_data=candidate_data)
+    return summary
+
+
+def generate_profile_summary_with_source(
+    *,
+    profile_data: dict[str, Any],
+    candidate_data: dict[str, Any],
+) -> tuple[str | None, str | None]:
     payload = _profile_summary_payload(profile_data=profile_data or {}, candidate_data=candidate_data or {})
     if not _has_summary_material(payload):
-        return None
+        return None, None
 
     llm_summary = _generate_summary(_build_prompt(payload, subject="개인 프로필"))
     if llm_summary:
-        return llm_summary
-    return _fallback_profile_summary(payload)
+        return llm_summary, "llm"
+
+    fallback = _fallback_profile_summary(payload)
+    return (fallback, "fallback") if fallback else (None, None)
 
 
 def generate_team_recruit_summary(*, profile_data: dict[str, Any], recruit_needs: list[dict[str, Any]]) -> str | None:
+    summary, _ = generate_team_recruit_summary_with_source(
+        profile_data=profile_data,
+        recruit_needs=recruit_needs,
+    )
+    return summary
+
+
+def generate_team_recruit_summary_with_source(
+    *,
+    profile_data: dict[str, Any],
+    recruit_needs: list[dict[str, Any]],
+) -> tuple[str | None, str | None]:
     payload = _team_recruit_summary_payload(profile_data=profile_data or {}, recruit_needs=recruit_needs or [])
     if not _has_summary_material(payload):
-        return None
+        return None, None
 
     llm_summary = _generate_summary(_build_prompt(payload, subject="팀 구인"))
     if llm_summary:
-        return llm_summary
-    return _fallback_team_summary(payload)
+        return llm_summary, "llm"
+
+    fallback = _fallback_team_summary(payload)
+    return (fallback, "fallback") if fallback else (None, None)

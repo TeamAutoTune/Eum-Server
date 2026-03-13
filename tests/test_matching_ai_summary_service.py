@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from app.core.config import settings
-from app.services.matching_ai_summary_service import generate_profile_summary, generate_team_recruit_summary
+from app.services.matching_ai_summary_service import (
+    generate_profile_summary,
+    generate_profile_summary_with_source,
+    generate_team_recruit_summary,
+    generate_team_recruit_summary_with_source,
+)
 
 
 def test_generate_profile_summary_uses_db_payload_fallback_when_llm_unavailable(monkeypatch) -> None:
@@ -39,3 +44,35 @@ def test_generate_team_summary_uses_db_payload_fallback_when_llm_unavailable(mon
     )
 
     assert isinstance(summary, str) and summary.strip()
+
+
+def test_generate_profile_summary_with_source_returns_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+
+    summary, source = generate_profile_summary_with_source(
+        profile_data={"instruments": ["guitar"], "genres": ["rock"], "region": "Seoul"},
+        candidate_data={},
+    )
+
+    assert isinstance(summary, str) and summary.strip()
+    assert source == "fallback"
+
+
+def test_generate_team_summary_with_source_returns_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+
+    summary, source = generate_team_recruit_summary_with_source(
+        profile_data={
+            "teamProfile": {
+                "teamName": "Band",
+                "genres": ["rock"],
+                "region": "Seoul",
+            }
+        },
+        recruit_needs=[{"instrument": "drum", "part": "main"}],
+    )
+
+    assert isinstance(summary, str) and summary.strip()
+    assert source == "fallback"

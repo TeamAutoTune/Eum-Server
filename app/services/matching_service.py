@@ -4,6 +4,7 @@ import logging
 import random
 import sys
 import json
+import hashlib
 from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
@@ -11,11 +12,18 @@ from uuid import uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.models.llm_summary_cache import LLMSummaryCache
 from app.models.matching import MatchingProfile
 from app.models.team import Team, TeamMember
 from app.models.team_matching_profile import TeamMatchingProfile
 from app.models.user import User
 from app.services import chat_service
+from app.services.matching_ai_summary_service import (
+    SUMMARY_PROMPT_VERSION,
+    generate_profile_summary_with_source,
+    generate_team_recruit_summary_with_source,
+)
 from app.services.recommendation_logging import log_match_event, log_match_features
 
 
@@ -818,7 +826,7 @@ def _fallback_candidate_ai_summary(candidate: dict, mode: str) -> str | None:
     return None
 
 
-def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
+def _candidate_summary_from_db_fields(candidate: dict, mode: str) -> str:
     profile_data = _safe_dict(candidate.get("_profile_data"))
     profile_team = _safe_dict(profile_data.get("teamProfile"))
     candidate_team = _safe_dict(candidate.get("teamProfile"))
@@ -845,7 +853,150 @@ def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
                 profile_data.get("summary"),
             )
         )
-    return value or _fallback_candidate_ai_summary(candidate, mode)
+    return value
+
+
+def _summary_cache_key(candidate: dict, mode: str) -> tuple[str, str]:
+    if mode == "apply":
+        source_id = _safe_text(_first_non_empty(candidate.get("team_id"), candidate.get("id")))
+        return "team_profile", source_id
+    source_id = _safe_text(candidate.get("id"))
+    return "profile", source_id
+
+
+def _candidate_summary_payload_for_generation(candidate: dict, mode: str) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    profile_data = _safe_dict(candidate.get("_profile_data"))
+    if mode == "apply":
+        candidate_team = _safe_dict(candidate.get("teamProfile"))
+        profile_team = _safe_dict(profile_data.get("teamProfile"))
+        merged_team = {**profile_team, **candidate_team}
+        normalized_profile = {
+            **profile_data,
+            "teamProfile": {
+                **merged_team,
+                "teamName": _safe_text(
+                    _first_non_empty(
+                        merged_team.get("teamName"),
+                        candidate.get("team_name"),
+                        candidate.get("teamName"),
+                        candidate.get("nickname"),
+                    )
+                ),
+                "genres": _safe_list(_first_non_empty(merged_team.get("genres"), candidate.get("genres"))),
+                "region": _safe_text(_first_non_empty(merged_team.get("region"), candidate.get("region"))),
+                "practiceFrequency": _safe_text(
+                    _first_non_empty(merged_team.get("practiceFrequency"), candidate.get("practiceFrequency"))
+                ),
+                "recruitingSessions": _safe_list(
+                    _first_non_empty(
+                        merged_team.get("recruitingSessions"),
+                        candidate.get("recruitingSessions"),
+                    )
+                ),
+            },
+        }
+        recruit_needs = [
+            need for need in _safe_list(_first_non_empty(candidate.get("recruitNeeds"), profile_data.get("recruitNeeds")))
+            if isinstance(need, dict)
+        ]
+        return normalized_profile, {}, recruit_needs
+
+    candidate_data = {
+        "instruments": _safe_list(candidate.get("instruments")),
+        "parts": _safe_list(candidate.get("parts")),
+        "genres": _safe_list(candidate.get("genres")),
+        "style": _safe_text(candidate.get("style")),
+        "region": _safe_text(candidate.get("region")),
+        "availability": _safe_list(candidate.get("availability")),
+        "practiceFrequency": _safe_text(candidate.get("practiceFrequency")),
+        "activityGoal": _safe_text(candidate.get("activityGoal")),
+    }
+    return profile_data, candidate_data, []
+
+
+def _summary_payload_hash(profile_data: dict[str, Any], candidate_data: dict[str, Any], recruit_needs: list[dict[str, Any]]) -> str:
+    serialized = json.dumps(
+        {
+            "profile_data": profile_data,
+            "candidate_data": candidate_data,
+            "recruit_needs": recruit_needs,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _summary_source_from_status(status: str) -> str:
+    if status == "llm":
+        return "llm"
+    if status == "db":
+        return "db"
+    return "fallback"
+
+
+def _candidate_ai_summary_with_source(db: Session, candidate: dict, mode: str) -> tuple[str | None, str]:
+    existing_summary = _candidate_summary_from_db_fields(candidate, mode)
+    if existing_summary:
+        return existing_summary, "db"
+
+    source_type, source_id = _summary_cache_key(candidate, mode)
+    profile_data, candidate_data, recruit_needs = _candidate_summary_payload_for_generation(candidate, mode)
+    payload_hash = _summary_payload_hash(profile_data, candidate_data, recruit_needs)
+
+    if source_id:
+        cache_row = db.scalar(
+            select(LLMSummaryCache).where(
+                LLMSummaryCache.source_type == source_type,
+                LLMSummaryCache.source_id == source_id,
+                LLMSummaryCache.model_name == settings.llm_model,
+                LLMSummaryCache.prompt_version == SUMMARY_PROMPT_VERSION,
+            )
+        )
+        if (
+            cache_row
+            and cache_row.profile_hash == payload_hash
+            and _safe_text(cache_row.summary_text)
+        ):
+            return _safe_text(cache_row.summary_text), _summary_source_from_status(cache_row.status)
+    else:
+        cache_row = None
+
+    if mode == "apply":
+        generated_summary, generated_source = generate_team_recruit_summary_with_source(
+            profile_data=profile_data,
+            recruit_needs=recruit_needs,
+        )
+    else:
+        generated_summary, generated_source = generate_profile_summary_with_source(
+            profile_data=profile_data,
+            candidate_data=candidate_data,
+        )
+
+    summary = _safe_text(generated_summary) or _safe_text(_fallback_candidate_ai_summary(candidate, mode))
+    source = generated_source if generated_source in {"llm", "fallback"} else "fallback"
+
+    if source_id:
+        row = cache_row or LLMSummaryCache(
+            source_type=source_type,
+            source_id=source_id,
+            model_name=settings.llm_model,
+            prompt_version=SUMMARY_PROMPT_VERSION,
+        )
+        row.profile_hash = payload_hash
+        row.summary_text = summary or None
+        row.status = source
+        row.error_message = None if summary else "summary_empty_after_generation"
+        db.add(row)
+
+    return (summary or None), source
+
+
+def _candidate_ai_summary(candidate: dict, mode: str) -> str | None:
+    existing_summary = _candidate_summary_from_db_fields(candidate, mode)
+    if existing_summary:
+        return existing_summary
+    return _fallback_candidate_ai_summary(candidate, mode)
 
 
 def _is_active_candidate(candidate: dict) -> bool:
@@ -1144,6 +1295,7 @@ def recommend_matches(
 
         candidate_map = {str(item.get("id")): item for item in filtered_candidates_raw}
         results: list[dict] = []
+        cache_dirty = False
 
         for rank_position, item in enumerate(scored, start=1):
             try:
@@ -1187,7 +1339,8 @@ def recommend_matches(
                 )
 
                 card_data = _candidate_to_card(candidate)
-                ai_summary = _candidate_ai_summary(candidate, mode)
+                ai_summary, summary_source = _candidate_ai_summary_with_source(db, candidate, mode)
+                cache_dirty = True
 
                 results.append(
                     {
@@ -1198,6 +1351,7 @@ def recommend_matches(
                         "matchScore": final_score,
                         "reasons": _safe_list(item.get("reasons")),
                         "ai_summary": ai_summary,
+                        "summary_source": summary_source,
                         **card_data,
                     }
                 )
@@ -1209,6 +1363,13 @@ def recommend_matches(
                     rank_position,
                 )
                 continue
+
+        if cache_dirty:
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("matching_summary_cache_commit_failed recommendation_id=%s", recommendation_id)
 
         logger.info(
             "matching_stage_counts recommendation_id=%s data=%s",

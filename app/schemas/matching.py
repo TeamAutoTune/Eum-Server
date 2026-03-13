@@ -50,6 +50,7 @@ class MatchingResultOut(BaseModel):
     matchScore: int
     reasons: list[str] = Field(default_factory=list)
     ai_summary: str | None = None
+    summary_source: Literal["llm", "db", "fallback"] | None = None
 
 
 class MatchingRecommendResponse(BaseModel):
