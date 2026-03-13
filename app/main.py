@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.migrations import apply_startup_migrations
 from app.db.session import SessionLocal, engine
+from app.scripts.backfill_matching_summaries import run as run_matching_summary_backfill
 from app.scripts.backfill_onboarding_profiles import run as run_onboarding_backfill
 from app.services import board_service
 
@@ -98,3 +99,21 @@ def on_startup() -> None:
             )
         except Exception:
             logger.exception("Startup onboarding backfill failed")
+
+    if settings.backfill_matching_summaries_on_startup:
+        try:
+            exit_code = run_matching_summary_backfill(
+                argparse.Namespace(
+                    dry_run=False,
+                    user_id_prefix=settings.backfill_matching_summaries_user_id_prefix,
+                    team_name_prefix=settings.backfill_matching_summaries_team_name_prefix,
+                )
+            )
+            logger.info(
+                "Startup matching summary backfill finished exit_code=%s user_id_prefix=%s team_name_prefix=%s",
+                exit_code,
+                settings.backfill_matching_summaries_user_id_prefix,
+                settings.backfill_matching_summaries_team_name_prefix,
+            )
+        except Exception:
+            logger.exception("Startup matching summary backfill failed")
