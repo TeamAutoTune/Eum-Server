@@ -33,12 +33,14 @@ def test_matching_result_out_keeps_team_card_fields_and_ai_summary() -> None:
         "matchScore": 87,
         "reasons": ["genre_match"],
         "ai_summary": "test summary",
+        "summary_source": "db",
     }
 
     result = MatchingResultOut.model_validate(payload)
 
     assert result.teamProfile["genres"] == ["rock"]
     assert result.ai_summary == "test summary"
+    assert result.summary_source == "db"
 
 
 def test_matching_result_out_allows_null_ai_summary() -> None:
@@ -60,6 +62,7 @@ def test_matching_result_out_allows_null_ai_summary() -> None:
     result = MatchingResultOut.model_validate(payload)
 
     assert result.ai_summary is None
+    assert result.summary_source is None
 
 
 def test_candidate_ai_summary_uses_db_summary_by_mode() -> None:
